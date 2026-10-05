@@ -71,14 +71,14 @@ for the actual state.
 Run this on the server host, once per app/device:
 
 ```sh
-/tmp/opencode/yubal-venv/bin/python scripts/intake_devices.py provision
+docker exec -it yubal python /app/scripts/intake_devices.py provision
 ```
 
 It prints the `device_id` and one-time `device_token`. Keep the token private;
 the server only keeps its hash. Revoke a lost device:
 
 ```sh
-/tmp/opencode/yubal-venv/bin/python scripts/intake_devices.py revoke <device_id>
+docker exec -it yubal python /app/scripts/intake_devices.py revoke <device_id>
 ```
 
 Complete details and security boundary: `docs/CLIENT-CONTRACT.md`.

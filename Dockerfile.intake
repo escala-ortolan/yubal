@@ -20,6 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl xz-utils c
     && groupadd -g 2000 storage \
     && useradd -u 1000 -g 2000 -d /app -s /usr/sbin/nologin yubal
 COPY --from=builder --chown=1000:2000 /app/.venv /app/.venv
+COPY --chown=1000:2000 scripts/ ./scripts/
 ENV PATH=/app/.venv/bin:$PATH \
     YUBAL_ROOT=/app \
     YUBAL_CONFIG=/state \
