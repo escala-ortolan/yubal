@@ -1,0 +1,28 @@
+# Production compose file for the fresh intake backend on VM1.
+# The host paths are local VM1 disk. Do not place /state on NFS.
+services:
+  yubal:
+    image: yubal:intake-20261005
+    container_name: yubal
+    environment:
+      YUBAL_HOST: 0.0.0.0
+      YUBAL_PORT: 8000
+      YUBAL_DATA: /app/data
+      YUBAL_INTAKE_ONLY: "true"
+      YUBAL_INTAKE_WORKER_ENABLED: "true"
+      YUBAL_INTAKE_STAGING: /staging
+      YUBAL_SCHEDULER_ENABLED: "false"
+      YUBAL_TZ: UTC
+    ports:
+      - "8011:8000"
+    volumes:
+      # New local state/staging; the legacy config remains preserved but unused.
+      - /opt/youtube/intake-state:/state
+      - /opt/youtube/intake-staging:/staging
+      # Existing NFS-backed music volume, retained exactly as requested.
+      - youtube_music:/app/data
+    restart: unless-stopped
+
+volumes:
+  youtube_music:
+    external: true

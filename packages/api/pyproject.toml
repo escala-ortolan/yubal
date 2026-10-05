@@ -5,6 +5,7 @@ dependencies = [
   "alembic>=1.18.3",
   "croniter>=6.0.0",
   "fastapi>=0.127.1",
+  "mutagen>=1.48.1",
   "pydantic-settings>=2.12.0",
   "rich>=14.2.0",
   "sqlmodel>=0.0.24",

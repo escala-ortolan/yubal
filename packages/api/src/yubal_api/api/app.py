@@ -1,6 +1,7 @@
 """FastAPI application factory and configuration."""
 
 import asyncio
+import fcntl
 import logging
 import mimetypes
 import re
@@ -16,14 +17,15 @@ from typing import Any
 
 from alembic import command
 from alembic.config import Config
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from pydantic import TypeAdapter
 from rich.console import Console
 from rich.logging import RichHandler
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.responses import HTMLResponse, Response
+from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.staticfiles import StaticFiles
 from starlette.types import Scope
 from yubal import cleanup_part_files
@@ -32,14 +34,18 @@ from yubal_api.api.container import Services
 from yubal_api.api.exceptions import register_exception_handlers
 from yubal_api.api.routes import (
     cookies,
+    dashboard,
     health,
     info,
+    intakes,
     jobs,
     logs,
     scheduler,
     subscriptions,
 )
 from yubal_api.db import SubscriptionRepository, create_db_engine
+from yubal_api.db.intake_ledger import IntakeLedger
+from yubal_api.db.local_disk import require_local_sqlite
 from yubal_api.schemas.jobs import (
     ClearedEvent,
     CreatedEvent,
@@ -48,6 +54,8 @@ from yubal_api.schemas.jobs import (
     UpdatedEvent,
 )
 from yubal_api.schemas.logs import LogEntry
+from yubal_api.services.filing import reconcile_filing
+from yubal_api.services.intake_worker import IntakeWorker
 from yubal_api.services.job_event_bus import JobEventBus
 from yubal_api.services.job_executor import JobExecutor
 from yubal_api.services.job_store import JobStore
@@ -201,6 +209,12 @@ def create_services(repository: SubscriptionRepository) -> Services:
 def create_api_router() -> APIRouter:
     """Create the API router with all routes under /api prefix."""
     base_path = get_settings().base_path
+    if get_settings().intake_only:
+        fresh_router = APIRouter(prefix=f"{base_path}/v1")
+        fresh_router.include_router(health.router)
+        fresh_router.include_router(intakes.router)
+        fresh_router.include_router(intakes.tracks_router)
+        return fresh_router
     api_router = APIRouter(prefix=f"{base_path}/api")
     api_router.include_router(health.router)
     api_router.include_router(info.router)
@@ -218,6 +232,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings = get_settings()
     logger.info("Starting application...")
 
+    if settings.intake_only:
+        require_local_sqlite(settings.db_path)
+
     # Run database migrations (in thread to avoid blocking event loop)
     await asyncio.to_thread(run_migrations)
     logger.info("Database migrations complete")
@@ -225,6 +242,51 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Create database engine
     db_path = settings.db_path
     engine = create_db_engine(db_path)
+
+    if settings.intake_only:
+        app.state.intake_ledger = IntakeLedger(engine)
+        logger.info("Fresh intake initialized")
+        lock_file = None
+        stop = asyncio.Event()
+        worker_task = None
+        try:
+            if settings.intake_worker_enabled:
+                if settings.intake_staging is None:
+                    raise RuntimeError("Set YUBAL_INTAKE_STAGING to isolated staging")
+                staging = settings.intake_staging.resolve()
+                data = settings.data.resolve()
+                if staging == data or staging.is_relative_to(data):
+                    raise RuntimeError("Intake staging must be outside YUBAL_DATA")
+                lock_file = (settings.db_path.parent / "intake-worker.lock").open("a+")
+                fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                worker = IntakeWorker(app.state.intake_ledger, staging)
+                await asyncio.to_thread(worker.recover_startup)
+                filed = await asyncio.to_thread(
+                    reconcile_filing, app.state.intake_ledger
+                )
+                if filed:
+                    logger.warning("Filing reconciliation changed %d sources", filed)
+
+                async def run_worker() -> None:
+                    while not stop.is_set():
+                        did_work = await asyncio.to_thread(worker.run_once)
+                        if not did_work:
+                            try:
+                                await asyncio.wait_for(stop.wait(), timeout=2)
+                            except TimeoutError:
+                                pass
+
+                worker_task = asyncio.create_task(run_worker())
+            yield
+        finally:
+            stop.set()
+            if worker_task is not None:
+                await worker_task
+            if lock_file is not None:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+                lock_file.close()
+            engine.dispose()
+        return
 
     # Create services with database repository
     repository = SubscriptionRepository(engine)
@@ -273,6 +335,10 @@ def custom_openapi(app: FastAPI) -> dict[str, Any]:
         description=app.description,
         routes=app.routes,
     )
+
+    if get_settings().intake_only:
+        app.openapi_schema = schema
+        return schema
 
     # Inject SSE event schemas (not auto-discovered due to StreamingResponse)
     sse_models = [
@@ -388,6 +454,37 @@ def create_app() -> FastAPI:
     # Register exception handlers
     register_exception_handlers(app)
 
+    if settings.intake_only:
+        error_codes = {
+            401: "unauthorized",
+            403: "forbidden",
+            404: "not_found",
+            409: "conflict",
+            429: "rate_limited",
+        }
+
+        @app.exception_handler(StarletteHTTPException)
+        async def fresh_http_error(
+            request: Request, exc: StarletteHTTPException
+        ) -> JSONResponse:
+            message = exc.detail if isinstance(exc.detail, str) else "Request failed"
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={
+                    "error": error_codes.get(exc.status_code, "request_failed"),
+                    "message": message,
+                },
+            )
+
+        @app.exception_handler(RequestValidationError)
+        async def fresh_validation_error(
+            request: Request, exc: RequestValidationError
+        ) -> JSONResponse:
+            return JSONResponse(
+                status_code=422,
+                content={"error": "invalid_request", "message": "Invalid request"},
+            )
+
     # CORS middleware (type ignore needed due to Starlette typing limitations)
     app.add_middleware(
         CORSMiddleware,  # type: ignore[arg-type]
@@ -399,6 +496,8 @@ def create_app() -> FastAPI:
 
     # API routes under /api prefix
     app.include_router(create_api_router())
+    if settings.intake_only:
+        app.include_router(dashboard.router)
 
     # Static files from YUBAL_ROOT/web/dist
     # Fix MIME types for Windows (registry defaults .js to text/plain)
@@ -406,7 +505,7 @@ def create_app() -> FastAPI:
     mimetypes.add_type("text/css", ".css")
 
     web_build = settings.root / "web" / "dist"
-    if web_build.exists():
+    if web_build.exists() and not settings.intake_only:
         mount_path = f"{base_path}/" if base_path else "/"
         app.mount(
             mount_path,

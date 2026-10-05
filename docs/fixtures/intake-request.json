@@ -1,0 +1,12 @@
+{
+  "request_id": "d39d9cad-c939-4464-a677-7f10711d05f5",
+  "device_id": "e65a82ad-567e-422c-822b-254a8cb59bda",
+  "mode": "manual_queue",
+  "capture_session_id": "0855f10f-188d-411f-b342-77058f9ca623",
+  "queue_revision": 1,
+  "source_context": { "kind": "queue" },
+  "tracks": [
+    { "video_id": "dQw4w9WgXcQ", "position": 0 },
+    { "video_id": "dQw4w9WgXcQ", "position": 1 }
+  ]
+}

@@ -113,6 +113,16 @@ class Settings(BaseSettings):
     scheduler_enabled: bool = Field(
         default=True, description="Enable automatic scheduled sync"
     )
+    intake_only: bool = Field(
+        default=False,
+        description="Expose only fresh /v1 intake routes, never legacy jobs or sync",
+    )
+    intake_worker_enabled: bool = Field(
+        default=False, description="Run staging intake worker"
+    )
+    intake_staging: Path | None = Field(
+        default=None, description="Isolated intake staging"
+    )
     scheduler_cron: CronExpression = Field(
         default="0 0 * * *",
         description="Cron expression for scheduled sync",
