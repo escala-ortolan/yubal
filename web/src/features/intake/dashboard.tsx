@@ -45,6 +45,7 @@ export function IntakeDashboard() {
   const [busy, setBusy] = useState(false);
   const [unconfirmed, setUnconfirmed] = useState(false);
   const [filter, setFilter] = useState("all");
+  const [sort, setSort] = useState("newest");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<Track | null>(null);
@@ -238,8 +239,37 @@ export function IntakeDashboard() {
     }
   };
 
-  const rows = intakes.filter(
+  const historyRows = intakes.filter(
     (row) => tab !== "playlists" || row.request.mode.endsWith("playlist"),
+  );
+  const display = (row: Intake) => {
+    const item = row.items[0];
+    const hint = item && row.request.tracks[item.position];
+    return {
+      title: item?.display_title || hint?.title_hint || item?.video_id || "",
+      artist: item?.display_artist || hint?.artist_hint || "",
+    };
+  };
+  const rows = [...historyRows].sort((a, b) => {
+    if (sort === "newest") return 0;
+    const left = display(a);
+    const right = display(b);
+    const comparison =
+      sort === "title"
+        ? left.title.localeCompare(right.title)
+        : left.artist.localeCompare(right.artist) ||
+          left.title.localeCompare(right.title);
+    return comparison || b.intake_id.localeCompare(a.intake_id);
+  });
+  const visibleRows = rows.filter(
+    (row) =>
+      JSON.stringify([
+        row.request,
+        ...row.items.map((item) => [item.display_title, item.display_artist]),
+      ])
+        .toLowerCase()
+        .includes(query.toLowerCase()) &&
+      (filter === "all" || row.items.some((item) => item.status === filter)),
   );
   const controlJob = async (
     id: string,
@@ -537,6 +567,16 @@ export function IntakeDashboard() {
                     onChange={(e) => setQuery(e.target.value)}
                   />
                   <select
+                    aria-label="Sort submissions"
+                    className={`${field} w-auto`}
+                    value={sort}
+                    onChange={(e) => setSort(e.target.value)}
+                  >
+                    <option value="newest">Newest first</option>
+                    <option value="title">Title A–Z</option>
+                    <option value="artist">Artist A–Z</option>
+                  </select>
+                  <select
                     aria-label="Filter by status"
                     className={`${field} w-auto`}
                     value={filter}
@@ -560,16 +600,12 @@ export function IntakeDashboard() {
                     another history page.
                   </Card>
                 )}
-                {rows
-                  .filter(
-                    (row) =>
-                      JSON.stringify(row.request)
-                        .toLowerCase()
-                        .includes(query.toLowerCase()) &&
-                      (filter === "all" ||
-                        row.items.some((item) => item.status === filter)),
-                  )
-                  .map((row) => {
+                {!visibleRows.length && rows.length > 0 && (
+                  <Card className="p-6">
+                    No submissions match these search and status filters.
+                  </Card>
+                )}
+                {visibleRows.map((row) => {
                     const done = row.items.filter(
                       (item) => item.status === "downloaded",
                     ).length;
@@ -652,10 +688,14 @@ export function IntakeDashboard() {
                                         target="_blank"
                                         rel="noreferrer"
                                       >
-                                        {hint?.title_hint || item.video_id}
+                                         {item.display_title ||
+                                           hint?.title_hint ||
+                                           item.video_id}
                                       </a>
                                       <div className="text-muted">
-                                        {hint?.artist_hint}
+                                        {item.display_artist ||
+                                          hint?.artist_hint ||
+                                          "Artist unavailable"}
                                       </div>
                                     </td>
                                     <td>{label(item.status)}</td>

@@ -76,6 +76,8 @@ class IntakeRequest(BaseModel):
 class IntakeItemResponse(BaseModel):
     position: int
     video_id: str
+    display_title: str | None = None
+    display_artist: str | None = None
     status: SourceState
     downstream_status: DownstreamState
     final_path: str | None = None

@@ -5,7 +5,7 @@ import os
 import shutil
 import tempfile
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -176,6 +176,7 @@ class YTDLPDownloader:
         video_id: str,
         output_path: Path,
         cancel_token: CancelToken | None = None,
+        metadata_callback: Callable[[str | None, str | None], None] | None = None,
     ) -> Path:
         """Download a track and extract audio to the specified path.
 
@@ -221,6 +222,18 @@ class YTDLPDownloader:
             def capture_postprocessed_path(d: dict[str, Any]) -> None:
                 """Capture the final output path after FFmpeg post-processing."""
                 nonlocal actual_path
+                info = d.get("info_dict", {})
+                if metadata_callback and isinstance(info, dict):
+                    raw_title = info.get("track") or info.get("title")
+                    raw_artist = (
+                        info.get("artist")
+                        or info.get("creator")
+                        or info.get("uploader")
+                    )
+                    title = raw_title.strip() if isinstance(raw_title, str) else None
+                    artist = raw_artist.strip() if isinstance(raw_artist, str) else None
+                    if title or artist:
+                        metadata_callback(title or None, artist or None)
                 # Capture filepath after FFmpeg postprocessor completes
                 if d["status"] == "finished":
                     filepath = d.get("info_dict", {}).get("filepath")

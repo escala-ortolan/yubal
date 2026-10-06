@@ -63,6 +63,8 @@ Response (202):
   "items": [{
     "position": 0,
     "video_id": "jNQXAC9IVRw",
+    "display_title": null,
+    "display_artist": null,
     "status": "pending",
     "downstream_status": "not_started",
     "final_path": null
@@ -72,6 +74,10 @@ Response (202):
 
 202 means only that the server saved the request. Poll `GET /v1/tracks/{video_id}`
 for the actual state.
+
+History items also include nullable `display_title` and `display_artist`. These
+come from server-side download metadata and are populated after verified audio
+completion even when the submitting client supplied no title/artist hints.
 
 ## States
 

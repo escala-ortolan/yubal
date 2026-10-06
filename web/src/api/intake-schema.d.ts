@@ -345,6 +345,10 @@ export interface components {
         | "tagged"
         | "filed"
         | "missing_output";
+      /** Display Artist */
+      display_artist?: string | null;
+      /** Display Title */
+      display_title?: string | null;
       /** Final Path */
       final_path?: string | null;
       /** Position */

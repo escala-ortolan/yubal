@@ -217,7 +217,10 @@ def test_retry_tagging_is_device_scoped_and_never_re_downloads(
     )
 
     def fake_transfer(_video_id: str, output: Path) -> Path:
-        result = Path(f"{output}.m4a")
+        name = output.name.replace(
+            "%(artist,uploader|Unknown Artist)s", "Alphaville"
+        ).replace("%(title)s", "Forever Young (2019 Remaster)")
+        result = output.with_name(f"{name}.m4a")
         result.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(sample, result)
         return result
@@ -227,6 +230,10 @@ def test_retry_tagging_is_device_scoped_and_never_re_downloads(
 
     staging = tmp_path / "staging"
     assert IntakeWorker(ledger, staging, fake_transfer).run_once()
+    history = client.get("/v1/intakes", headers=headers).json()
+    item = history["items"][0]["items"][0]
+    assert item["display_title"] == "Forever Young (2019 Remaster)"
+    assert item["display_artist"] == "Alphaville"
     assert observe_manual_tags(ledger, video_id) == "tagged"
     attempts = ledger.attempt_count(video_id)
 
@@ -560,6 +567,11 @@ def test_checked_in_client_schema_matches_fresh_generated_openapi(
     assert schema == app.openapi()
     assert not any(path.startswith("/api/") for path in schema["paths"])
     properties = schema["components"]["schemas"]["IntakeItemResponse"]["properties"]
+    for field in ("display_title", "display_artist"):
+        assert {variant.get("type") for variant in properties[field]["anyOf"]} == {
+            "string",
+            "null",
+        }
     assert set(properties["status"]["enum"]) == {
         "pending",
         "downloading",

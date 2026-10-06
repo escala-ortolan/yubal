@@ -35,6 +35,8 @@ source_tracks = sa.Table(
     sa.Column("audio_path", sa.String(4096)),
     sa.Column("audio_sha256", sa.String(64)),
     sa.Column("pcm_sha256", sa.String(64)),
+    sa.Column("title", sa.String(500)),
+    sa.Column("artist", sa.String(500)),
 )
 intakes = sa.Table(
     "intakes",
@@ -311,7 +313,8 @@ class IntakeLedger:
                 text(
                     "SELECT i.position, i.video_id, s.state AS status, "
                     "COALESCE(ds.status, 'not_started') AS downstream_status, "
-                    "ds.final_path AS final_path "
+                    "ds.final_path AS final_path, s.title AS display_title, "
+                    "s.artist AS display_artist "
                     "FROM intake_items i "
                     "LEFT JOIN source_aliases a ON a.alias_video_id = i.video_id "
                     "JOIN source_tracks s ON s.video_id = "
@@ -979,7 +982,14 @@ class IntakeLedger:
             )
             return "tagged"
 
-    def complete(self, claim: Claim, audio: VerifiedAudio) -> None:
+    def complete(
+        self,
+        claim: Claim,
+        audio: VerifiedAudio,
+        *,
+        title: str | None = None,
+        artist: str | None = None,
+    ) -> None:
         path = Path(audio.path)
         with self.engine.connect() as connection:
             planned = connection.execute(
@@ -1010,7 +1020,9 @@ class IntakeLedger:
                 text(
                     "UPDATE source_tracks SET state = 'downloaded', "
                     "lease_token = NULL, "
-                    "audio_path = :path, audio_sha256 = :sha, pcm_sha256 = :pcm "
+                    "audio_path = :path, audio_sha256 = :sha, pcm_sha256 = :pcm, "
+                    "title = COALESCE(:title, title), "
+                    "artist = COALESCE(:artist, artist) "
                     "WHERE video_id = :id AND state = 'downloading' "
                     "AND lease_token = :token"
                 ),
@@ -1020,6 +1032,8 @@ class IntakeLedger:
                     "path": str(path),
                     "sha": audio.sha256,
                     "pcm": audio.pcm_sha256,
+                    "title": title[:500] if title else None,
+                    "artist": artist[:500] if artist else None,
                 },
             )
             if not changed.rowcount:

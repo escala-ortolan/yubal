@@ -44,6 +44,6 @@ RUN python -c 'from yubal_api.api.app import create_app; app = create_app(); ass
     && ffprobe -version >/dev/null \
     && ffmpeg -version >/dev/null
 USER 1000:2000
-RUN python -c 'import os, sqlite3, tempfile; tmp = tempfile.TemporaryDirectory(); os.environ["YUBAL_CONFIG"] = tmp.name; from yubal_api.api.app import run_migrations; from yubal_api.settings import get_settings; run_migrations(); connection = sqlite3.connect(get_settings().db_path); assert {"source_tracks", "downstream_stages", "intake_devices", "intake_controls", "intake_actions", "intake_schedules"}.issubset({row[1] for row in connection.execute("PRAGMA table_list")}); connection.close(); tmp.cleanup()'
+RUN python -c 'import os, sqlite3, tempfile; tmp = tempfile.TemporaryDirectory(); os.environ["YUBAL_CONFIG"] = tmp.name; from yubal_api.api.app import run_migrations; from yubal_api.settings import get_settings; run_migrations(); connection = sqlite3.connect(get_settings().db_path); tables = {row[1] for row in connection.execute("PRAGMA table_list")}; columns = {row[1] for row in connection.execute("PRAGMA table_info(source_tracks)")}; assert {"source_tracks", "downstream_stages", "intake_devices", "intake_controls", "intake_actions", "intake_schedules"}.issubset(tables); assert {"title", "artist"}.issubset(columns); connection.close(); tmp.cleanup()'
 EXPOSE 8000
 CMD ["python", "-m", "yubal_api"]

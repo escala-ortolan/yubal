@@ -1,6 +1,6 @@
 # Yubal intake API
 
-Contract version: `2026-10-06.ui2`. Schema of record:
+Contract version: `2026-10-06.ui3`. Schema of record:
 `docs/fixtures/openapi-v1.json`, exported from the running fresh-mode app and
 asserted equal to it in the test suite. Bump this version whenever a route,
 status enum or response field changes.
@@ -84,6 +84,18 @@ These features were explicitly authorized after the initial UI review. Migration
   or an explicit Run now. The legacy upstream scheduler remains unmounted.
 
 Fresh mode exposes `GET /v1/health`, `POST /v1/intakes`, `GET /v1/intakes/{intake_id}`, `GET /v1/intakes` (device history), `GET /v1/tracks/{video_id}`, `POST /v1/tracks/{video_id}/retry`, and `POST /v1/tracks/{video_id}/retry-tagging`. It does not mount legacy `/api` routes or start the upstream scheduler. Device tokens are provisioned and revoked via a local owner command, not an open network endpoint. The server stores token hashes; `Authorization: Bearer <device_token>` is required on intake routes. HTTPS is required before access from other machines. Sanitized examples for the client are in `docs/fixtures/`; the generated OpenAPI remains the schema authority.
+
+### Server-resolved display metadata (`ui3`)
+
+`IntakeItemResponse` additively includes nullable `display_title` and
+`display_artist`. These are server-side yt-dlp metadata saved after a verified
+download; they are independent of optional client hints and do not affect source
+identity or download decisions. During upgrade, older flat staging filenames are
+used to backfill display metadata when possible. Until a download completes or
+metadata is available, clients should fall back to the video ID. This is a
+response-only addition; existing request payloads and endpoints are unchanged.
+Client handoff for `../ytmusic`: these optional response fields may be used for
+human-readable history labels; do not treat them as identity evidence.
 
 `POST /v1/intakes` accepts UUID `request_id` and `device_id`, mode `manual_song`, `manual_queue`, `manual_playlist`, `auto_song`, `auto_queue`, or `auto_playlist`, optional UUID `capture_session_id`, optional nonnegative `queue_revision`, optional `source_context` (`kind`: `song`, `queue`, `playlist`, `radio`; optional `playlist_id`), and 1–100 tracks. `manual_song` and `auto_song` each require exactly one track. Automatic modes are labels supplied by the client; they do not change worker behavior or add payload fields. Each track has an 11-character YouTube `video_id`, contiguous zero-based `position`, and optional 200-character display hints. Unknown fields are rejected. Repeated video IDs preserve order while sharing source identity. Identical request-ID replay returns the same intake; a changed body gives 409. A token/device mismatch gives 403; missing/revoked credentials give 401. The response is 202 with `{ "intake_id": "uuid", "items": [{ "position": 0, "video_id": "...", "status": "pending", "downstream_status": "not_started" }] }`. GET returns the same shape with current source state and returns 404 for another device's intake. **202 means accepted only**, whether or not the opt-in worker is running. Worker-side states currently include `pending`, `downloading`, `downloaded`, `failed`, and `missing_output`. `downloaded` is verified staging audio, not library-ready; the separate downstream state becomes `waiting_for_tagger` on verified completion and `tagged` only after owner-local evidence checks.
 

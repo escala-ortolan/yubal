@@ -1,7 +1,7 @@
 {
   "intake_id": "9da54be7-cc31-4a93-9c80-5aad722768d9",
   "items": [
-    { "position": 0, "video_id": "dQw4w9WgXcQ", "status": "pending", "downstream_status": "not_started", "final_path": null },
-    { "position": 1, "video_id": "dQw4w9WgXcQ", "status": "pending", "downstream_status": "not_started", "final_path": null }
+    { "position": 0, "video_id": "dQw4w9WgXcQ", "display_title": null, "display_artist": null, "status": "pending", "downstream_status": "not_started", "final_path": null },
+    { "position": 1, "video_id": "dQw4w9WgXcQ", "display_title": null, "display_artist": null, "status": "pending", "downstream_status": "not_started", "final_path": null }
   ]
 }

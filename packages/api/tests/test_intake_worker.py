@@ -107,6 +107,11 @@ def test_metadata_name_is_flat_and_download_path_is_recorded(
     assert sorted(path.name for path in staging.glob("*.m4a")) == [final.name]
     assert not any(path.is_dir() for path in staging.iterdir())
     assert worker_ledger.tagging_candidate("dQw4w9WgXcQ")[0] == final
+    item = worker_ledger.items(
+        worker_ledger.history("test-device", limit=1, before=None)[0][0]
+    )[0]
+    assert item["display_title"] == "A Title"
+    assert item["display_artist"] == "The Artist"
     with worker_ledger.engine.connect() as connection:
         from sqlalchemy import text
 
@@ -195,7 +200,7 @@ def transfer(_video_id, template):
     output=template.with_name(name.replace('%(title)s','Recovered Title')+'.m4a')
     shutil.copyfile(sys.argv[3], output)
     return output
-ledger.complete=lambda *_: os._exit(17)
+ledger.complete=lambda *_, **__: os._exit(17)
 IntakeWorker(ledger, Path(sys.argv[2]), transfer).run_once()
 """
     child = subprocess.run(

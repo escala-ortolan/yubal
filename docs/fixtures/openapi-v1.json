@@ -224,6 +224,28 @@
       },
       "IntakeItemResponse": {
         "properties": {
+          "display_artist": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Artist"
+          },
+          "display_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Title"
+          },
           "downstream_status": {
             "enum": [
               "not_started",

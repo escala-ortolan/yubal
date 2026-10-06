@@ -17,6 +17,15 @@ from yubal_api.db.intake_ledger import IntakeLedger, VerifiedAudio
 Transfer = Callable[[str, Path], Path]
 
 
+def _metadata_from_filename(filename: str) -> tuple[str | None, str | None]:
+    stem = Path(filename).name.removesuffix(".m4a")
+    stem = re.sub(r" \[[A-Za-z0-9_-]{11}(?:-[0-9a-f]{8})?\]$", "", stem)
+    if " - " not in stem:
+        return (stem[:500] or None), None
+    artist, title = stem.split(" - ", 1)
+    return (title[:500] or None), (artist[:500] or None)
+
+
 def sanitize_filename(filename: str, video_id: str) -> str:
     """Turn yt-dlp's server-side metadata basename into one safe m4a filename."""
     stem = filename[:-4] if filename.lower().endswith(".m4a") else filename
@@ -127,6 +136,7 @@ class IntakeWorker:
     ) -> None:
         self.ledger = ledger
         self.staging_root = staging_root.resolve()
+        self._download_metadata: dict[str, str | None] = {}
         if transfer is None:
             downloader = YTDLPDownloader(
                 DownloadConfig(
@@ -135,9 +145,19 @@ class IntakeWorker:
                     fetch_lyrics=False,
                 )
             )
-            self.transfer: Transfer = lambda video_id, output: downloader.download(
-                video_id, output
-            )
+
+            def transfer_with_metadata(video_id: str, output: Path) -> Path:
+                return downloader.download(
+                    video_id,
+                    output,
+                    metadata_callback=lambda title, artist: (
+                        self._download_metadata.update(
+                            {"title": title, "artist": artist}
+                        )
+                    ),
+                )
+
+            self.transfer: Transfer = transfer_with_metadata
         else:
             self.transfer = transfer
 
@@ -147,7 +167,13 @@ class IntakeWorker:
             try:
                 output = self.ledger.planned_output(claim)
                 if output.is_relative_to(self.staging_root) and not output.is_symlink():
-                    self.ledger.complete(claim, verify_audio(output))
+                    title, artist = _metadata_from_filename(output.name)
+                    self.ledger.complete(
+                        claim,
+                        verify_audio(output),
+                        title=title,
+                        artist=artist,
+                    )
                     for temporary in self.staging_root.glob(
                         f".yubal-inflight-{claim.attempt_id}-*.m4a"
                     ):
@@ -168,6 +194,7 @@ class IntakeWorker:
         if claim is None:
             return False
         try:
+            self._download_metadata.clear()
             self.staging_root.mkdir(parents=True, exist_ok=True)
             prefix = f".yubal-inflight-{claim.attempt_id}-"
             template = self.staging_root / (
@@ -198,7 +225,15 @@ class IntakeWorker:
                     os.link(actual, flat, follow_symlinks=False)
                 except FileExistsError:
                     continue
-                self.ledger.complete(claim, verify_audio(flat))
+                fallback_title, fallback_artist = _metadata_from_filename(
+                    actual.name[len(prefix) :]
+                )
+                self.ledger.complete(
+                    claim,
+                    verify_audio(flat),
+                    title=self._download_metadata.get("title") or fallback_title,
+                    artist=self._download_metadata.get("artist") or fallback_artist,
+                )
                 actual.unlink()
                 break
             else:

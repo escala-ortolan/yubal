@@ -768,6 +768,43 @@ class TestCancellation:
             with pytest.raises(CancellationError, match="Download cancelled"):
                 downloader.download("test_video_id", output_path, cancel_token=token)
 
+    def test_ytdlp_downloader_reports_metadata_from_postprocessor(
+        self, download_config: DownloadConfig, tmp_path: Path
+    ) -> None:
+        downloader = YTDLPDownloader(download_config)
+        seen: list[tuple[str | None, str | None]] = []
+
+        with patch("yt_dlp.YoutubeDL") as mock_ydl:
+
+            def create(options: dict) -> MagicMock:
+                mocked = MagicMock()
+                mocked.__enter__.return_value = mocked
+                mocked.__exit__.return_value = False
+
+                def mocked_download(urls: list[str]) -> None:
+                    for hook in options["postprocessor_hooks"]:
+                        hook(
+                            {
+                                "status": "finished",
+                                "info_dict": {
+                                    "title": "Forever Young (2019 Remaster)",
+                                    "artist": "Alphaville",
+                                },
+                            }
+                        )
+
+                mocked.download = mocked_download
+                return mocked
+
+            mock_ydl.side_effect = create
+            downloader.download(
+                "dQw4w9WgXcQ",
+                tmp_path / "song",
+                metadata_callback=lambda title, artist: seen.append((title, artist)),
+            )
+
+        assert seen == [("Forever Young (2019 Remaster)", "Alphaville")]
+
     def test_ytdlp_downloader_cancel_hook_triggers_during_download(
         self, download_config: DownloadConfig, tmp_path: Path
     ) -> None:

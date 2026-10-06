@@ -52,8 +52,8 @@ def main() -> None:
             version = database.execute(
                 "SELECT version_num FROM alembic_version"
             ).fetchone()
-            if version != ("91a30c1e0003",):
-                parser.error("Expected current intake schema revision 91a30c1e0003")
+            if version != ("d42b6c1a0004",):
+                parser.error("Expected current intake schema revision d42b6c1a0004")
             if database.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 parser.error("Source SQLite integrity check failed")
             counts = {

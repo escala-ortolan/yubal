@@ -8,7 +8,7 @@ from uuid import uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 from yubal_api.db.intake_ledger import (
     IntakeCapacityError,
     IntakeConflict,
@@ -101,12 +101,39 @@ def test_migration_upgrade_and_downgrade_on_scratch_db(
         assert "subscriptions" in inspect(engine).get_table_names()
         ledger = IntakeLedger(engine)
         ledger.submit(str(uuid4()), "migration-device", "manual_song", ["dQw4w9WgXcQ"])
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE source_tracks SET audio_path=:path "
+                    "WHERE video_id='dQw4w9WgXcQ'"
+                ),
+                {
+                    "path": "/music/intake-staging/Alphaville - "
+                    "Forever Young (2019 Remaster).m4a"
+                },
+            )
+        command.upgrade(config, "91a30c1e0003")
+        with engine.begin() as connection:
+            connection.exec_driver_sql("ALTER TABLE source_tracks DROP COLUMN artist")
+            connection.exec_driver_sql("ALTER TABLE source_tracks DROP COLUMN title")
+        command.downgrade(config, "7c921b71e002")
+        assert "title" not in {
+            c["name"] for c in inspect(engine).get_columns("source_tracks")
+        }
         command.upgrade(config, "head")
         assert "downstream_stages" in inspect(engine).get_table_names()
         # The pre-move filing intent must survive a real migration, not just
         # metadata.create_all in tests.
         columns = {c["name"] for c in inspect(engine).get_columns("downstream_stages")}
         assert {"planned_final_path", "planned_sidecars", "final_path"} <= columns
+        with engine.connect() as connection:
+            stored = connection.execute(
+                text(
+                    "SELECT title, artist FROM source_tracks "
+                    "WHERE video_id='dQw4w9WgXcQ'"
+                )
+            ).one()
+        assert stored == ("Forever Young (2019 Remaster)", "Alphaville")
         assert ledger.source_count() == 1
         command.downgrade(config, "51c7acb10a01")
         assert "downstream_stages" not in inspect(engine).get_table_names()

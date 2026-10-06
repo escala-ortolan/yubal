@@ -22,6 +22,8 @@ Unknown API and asset paths return 404 rather than a misleading SPA HTML respons
 - Public playlist URL/ID preview, title/artist hints, up to 100 entries; explicit
   submission after review. Preview itself never downloads.
 - Device-scoped paginated history, per-page counts, search and state filters.
+- Downloaded tracks display server-resolved artist/title even when capture clients
+  submitted only video IDs; history can be sorted by title or artist.
 - Ordered track tables, verified-track completion bars, download and downstream
   states. Automatic captures are shown with their original mode/context.
 - Detail views for sanitized failures, attempts, codec, size, duration, audio

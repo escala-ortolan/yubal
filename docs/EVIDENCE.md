@@ -448,3 +448,24 @@ plus forget-song and force-redownload options. Contract is now
 - No production music download was initiated during the second cutover; the
   isolated real-download evidence above proves the flat naming behavior, while
   actual NFS staging publication on VM1 awaits a future authorized intake.
+
+## Human-readable dashboard history (2026-10-06)
+
+- User reported that dashboard entries were only video IDs. Root cause: client
+  capture hints can be null, and the worker previously discarded the yt-dlp
+  artist/title used in the flat staging filename. The API exposed only those
+  nullable client hints, so the UI fell back to IDs.
+- Added schema migration `d42b6c1a0004` to persist `source_tracks.title` and
+  `artist`, backfill existing flat staging paths where possible, and expose
+  nullable `display_title`/`display_artist` in intake items. The downloader
+  passes yt-dlp metadata through the worker; recovery and older/fake transfer
+  paths derive a fallback from the flat filename. The UI now displays these
+  values, searches them, and offers newest/title/artist sorting without changing
+  playlist item order. Contract version is `2026-10-06.ui3`; only this backend's
+  shared response schema and web dashboard changed, no extension/Android code.
+- Added tests for downloader hook metadata, worker persistence, API schema fields,
+  and upgrading an existing ledger with `Alphaville - Forever Young (2019
+  Remaster).m4a`. Full backend regression after the code changes: **773 passed**;
+  Ruff and targeted type checks passed. Frontend production build is verified by
+  the pinned container build `yubal:intake-ui3-working`, ID
+  `sha256:e57c1b40abe4059f4ef68e56016adeef48b722856c5b3d7192c9217a9ada6d10`.
