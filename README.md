@@ -7,8 +7,8 @@ Read AGENTS.md, docs/IMPLEMENTATION-PLAN.md, docs/CLIENT-CONTRACT.md and docs/PR
 
 ## Status and how to use it
 
-The durable intake backend is deployed on VM1. Current working-tree UI changes
-are tested in isolated staging and require a separate production deployment.
+The durable intake backend and React UI are deployed on VM1. See
+`docs/EVIDENCE.md` for the deployment checks and backup/rollback references.
 
 The React frontend retains upstream styling/components and provides fresh-mode
 download history, playlist previews, ordered track status and attempt details.

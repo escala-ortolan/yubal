@@ -2,25 +2,27 @@
 # The host paths are local VM1 disk. Do not place /state on NFS.
 services:
   yubal:
-    image: yubal:intake-20261005
+    image: yubal:intake-ui-20261006
     container_name: yubal
     environment:
       YUBAL_HOST: 0.0.0.0
       YUBAL_PORT: 8000
-      YUBAL_DATA: /app/data
+      # Library root = Music/downloads, matching VM1's existing deployment.
+      YUBAL_DATA: /app/data/downloads
       YUBAL_INTAKE_ONLY: "true"
       YUBAL_INTAKE_WORKER_ENABLED: "true"
-      YUBAL_INTAKE_STAGING: /staging
+      # Stage into the Music volume while the SQLite ledger stays on local disk.
+      YUBAL_INTAKE_STAGING: /music/intake-staging
       YUBAL_SCHEDULER_ENABLED: "false"
       YUBAL_TZ: UTC
     ports:
       - "8011:8000"
     volumes:
-      # New local state/staging; the legacy config remains preserved but unused.
+      # Local ext4 state; the legacy config remains preserved but unused.
       - /opt/youtube/intake-state:/state
-      - /opt/youtube/intake-staging:/staging
-      # Existing NFS-backed music volume, retained exactly as requested.
+      # Existing NFS-backed music volume, mounted twice for staging and library.
       - youtube_music:/app/data
+      - youtube_music:/music
     restart: unless-stopped
 
 volumes:

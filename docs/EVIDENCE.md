@@ -303,3 +303,42 @@ plus forget-song and force-redownload options. Contract is now
   Container smoke test exercised its migrations, React root/assets, authentication,
   schedules, auto-song submission, replay-safe force action and forget action.
   No Git push, production restart, library mutation or cutover was performed.
+
+## VM1 React UI and controls deployment (2026-10-06)
+
+- Committed and pushed `9f4f8fa` to
+  `https://github.com/escala-ortolan/yubal`, branch `main`.
+- Before cutover, `yubal` was the only container targeted for replacement;
+  old image `yubal:intake-20261005` remained available at
+  `sha256:e63e4d1d352a2dad59a9612d9a4304ed9c7f138d6d3dbf1ad404d85fe9fed5e1`.
+  The VM1 local ext4 ledger passed `PRAGMA integrity_check` at revision
+  `7c921b71e002` with 27 sources and 10 intakes.
+- SQLite online backup via the old running container:
+  `/opt/youtube/intake-state/yubal/yubal.db.20261006-104939.pre-ui.backup`,
+  135168 bytes, integrity `ok`, revision `7c921b71e002`.
+  Exact prior compose copy:
+  `/opt/youtube/backups/docker-compose.yml.20261006-104939.pre-ui`.
+  The backup holds the live device token hashes; keep it in VM1's restricted
+  local state and do not publish it.
+- Built the committed source with `VITE_COMMIT_SHA=9f4f8fa` and loaded image
+  `yubal:intake-ui-20261006`, ID
+  `sha256:35912d8e8afbcc1654b4363cd85a64f4d1951f3a89832cb2e409b73b94a1828f`.
+  VM1 compose was edited only for the image tag and `docker compose up -d
+  --no-deps yubal` replaced that one service. `rec-engine` remained stopped.
+  VM1's real staging is `/music/intake-staging` on the existing NFS-backed
+  `youtube_music` volume; SQLite `/state` is on local ext4. The checked-in
+  compose definition now mirrors those live mounts and environment settings.
+- Startup applied migration `91a30c1e0003` and completed. Post-cutover DB
+  integrity `ok`, 27 sources, 10 intakes, zero new schedules. Runtime image ID,
+  mounts and container status matched the intended target.
+- LAN `http://192.168.3.11:8011/v1/health`, internal Caddy, and public
+  `https://yubal.ortolan.us/v1/health` returned 200. Public root returned
+  React HTML (200), OpenAPI returned 200 and exactly matched the checked-in
+  schema, unauthenticated schedules returned 401, and unknown assets returned
+  404. A public browser loaded the new Downloads/Playlists/Schedules UI.
+  Its one console network error was the browser blocking Cloudflare's separate
+  analytics beacon; no Yubal app error was observed.
+- This production verification checked service/schema/UI availability, not a
+  new production download, schedule execution, or library mutation. The prior
+  image cannot directly open the migrated DB; restore the pre-ui SQLite backup
+  along with the pre-ui compose file if rollback is required.
