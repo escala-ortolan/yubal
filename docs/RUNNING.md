@@ -114,6 +114,11 @@ export YUBAL_SCHEDULER_ENABLED=false
 
 ## Where things are
 
+The packaged React UI includes detailed history, ordered playlist previews,
+scheduled playlist captures, cancel/resume/delete-from-history, and explicit
+force-redownload/forget-song controls. See `docs/UI-REVIEW.md` for the build and
+`docs/CLIENT-CONTRACT.md` for action semantics and migration/rollback requirements.
+
 | Thing | Path |
 | --- | --- |
 | This guide | `docs/RUNNING.md` |
@@ -127,5 +132,5 @@ export YUBAL_SCHEDULER_ENABLED=false
 
 - Tagging. Something else has to write artist/title onto the file first.
 - Library indexing. `filed` is the last state the server knows about.
-- Force-redownload.
-- HTTPS. It is loopback-only. Do not expose this port to your LAN.
+- Built-in TLS. The local development server uses HTTP; the deployed service
+  uses the existing HTTPS reverse proxy.

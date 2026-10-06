@@ -18,10 +18,26 @@ Authorization: Bearer <device-token>
 | `GET /v1/health` | Service health |
 | `POST /v1/intakes` | Submit 1–100 video IDs; returns 202 when accepted |
 | `GET /v1/intakes/{intake_id}` | Read one intake |
+| `GET /v1/intakes/{intake_id}/details` | Ordered request, display hints and current state |
+| `POST /v1/intakes/preview-playlist` | Preview up to 100 public playlist entries before submission |
 | `GET /v1/intakes?limit=20&before=<cursor>` | Read device-owned history |
 | `GET /v1/tracks/{video_id}` | Read current state for one device-owned source |
+| `GET /v1/tracks/{video_id}/details` | Download attempts, sanitized errors and audio evidence |
+| `PATCH /v1/intakes/{intake_id}/control` | Cancel, resume, or delete from history |
+| `POST /v1/tracks/{video_id}/force-redownload` | Explicit new download; preserves old files; UUID body required |
+| `DELETE /v1/tracks/{video_id}` | Forget deduplication identity; keeps files; UUID body required |
+| `GET /v1/schedules` | Device-owned playlist schedules |
+| `POST /v1/schedules` | Create a cron/timezone playlist schedule |
+| `PUT /v1/schedules/{id}` | Edit or pause/enable a schedule |
+| `DELETE /v1/schedules/{id}` | Delete a schedule |
+| `POST /v1/schedules/{id}/run` | Enable and queue an immediate schedule run |
 | `POST /v1/tracks/{video_id}/retry` | Retry a failed download only |
 | `POST /v1/tracks/{video_id}/retry-tagging` | Re-open tagging only; never downloads again |
+
+Intake modes: `manual_song`, `manual_queue`, `manual_playlist`, `auto_song`,
+`auto_queue`, `auto_playlist`. `auto_*` values are capture-source labels only;
+the request shape and backend download behavior are unchanged. `manual_song`
+and `auto_song` require exactly one track.
 
 ## Submit one video
 

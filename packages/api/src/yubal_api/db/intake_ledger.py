@@ -45,6 +45,14 @@ intakes = sa.Table(
     sa.Column("device_id", sa.String(128), nullable=False),
     sa.Column("payload", sa.Text(), nullable=False),
 )
+intake_controls = sa.Table(
+    "intake_controls",
+    metadata,
+    sa.Column(
+        "intake_id", sa.String(36), sa.ForeignKey("intakes.id"), primary_key=True
+    ),
+    sa.Column("state", sa.String(16), nullable=False),
+)
 intake_items = sa.Table(
     "intake_items",
     metadata,
@@ -197,7 +205,14 @@ class IntakeLedger:
         request_id = str(UUID(request_id))
         if not device_id or len(device_id) > 128:
             raise ValueError("Invalid device ID")
-        if mode not in {"manual_song", "manual_queue", "manual_playlist"}:
+        if mode not in {
+            "manual_song",
+            "manual_queue",
+            "manual_playlist",
+            "auto_song",
+            "auto_queue",
+            "auto_playlist",
+        }:
             raise ValueError("Invalid intake mode")
         if not video_ids or len(video_ids) > 100:
             raise ValueError("Intake must contain 1-100 tracks")
@@ -320,6 +335,73 @@ class IntakeLedger:
                 is not None
             )
 
+    def intake_request(self, intake_id: str) -> dict[str, object]:
+        """Original ordered intent; callers must enforce device ownership."""
+        with self.engine.connect() as connection:
+            row = connection.execute(
+                sa.select(intakes.c.request_id, intakes.c.payload).where(
+                    intakes.c.id == intake_id
+                )
+            ).one()
+        device, mode, ids, details = json.loads(row.payload)
+        return {
+            "request_id": row.request_id,
+            **(
+                details
+                or {
+                    "device_id": device,
+                    "mode": mode,
+                    "tracks": [
+                        {"video_id": value, "position": i}
+                        for i, value in enumerate(ids)
+                    ],
+                }
+            ),
+        }
+
+    def reserve_preview(self, device_id: str) -> None:
+        """Charge a metadata lookup against the existing request budget."""
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            now = self.clock()
+            connection.execute(
+                rate_events.delete().where(rate_events.c.created_at < now - 3600)
+            )
+            recent = connection.scalar(
+                sa.select(sa.func.count())
+                .select_from(rate_events)
+                .where(
+                    rate_events.c.device_id == device_id,
+                    rate_events.c.created_at > now - 60,
+                )
+            )
+            if recent is not None and recent >= self.MAX_NEW_INTAKES_PER_MINUTE:
+                raise IntakeRateLimitError("Device request rate exceeded")
+            connection.execute(
+                rate_events.insert().values(device_id=device_id, created_at=now)
+            )
+
+    def attempt_details(self, video_id: str) -> list[dict[str, object]]:
+        """Allowlisted durable attempt evidence, excluding internal lease data."""
+        with self.engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    sa.select(
+                        attempts.c.id,
+                        attempts.c.status,
+                        attempts.c.audio_bytes,
+                        attempts.c.duration_seconds,
+                        attempts.c.codec,
+                        attempts.c.error,
+                        attempts.c.audio_sha256,
+                        attempts.c.pcm_sha256,
+                    ).where(attempts.c.video_id == self.resolve(video_id))
+                )
+                .mappings()
+                .all()
+            )
+        return [dict(row) for row in rows]
+
     def history(
         self, device_id: str, *, limit: int, before: int | None
     ) -> tuple[list[str], int | None]:
@@ -327,6 +409,8 @@ class IntakeLedger:
             rows = connection.execute(
                 text(
                     "SELECT sequence, id FROM intakes WHERE device_id = :device "
+                    "AND NOT EXISTS (SELECT 1 FROM intake_controls c "
+                    "WHERE c.intake_id = intakes.id AND c.state = 'deleted') "
                     "AND (:before IS NULL OR sequence < :before) "
                     "ORDER BY sequence DESC LIMIT :count"
                 ),
@@ -477,6 +561,12 @@ class IntakeLedger:
             value = connection.execute(
                 text(
                     "SELECT video_id FROM source_tracks WHERE state = 'pending' "
+                    "AND EXISTS (SELECT 1 FROM intake_items i "
+                    "LEFT JOIN source_aliases a ON a.alias_video_id = i.video_id "
+                    "LEFT JOIN intake_controls c ON c.intake_id = i.intake_id "
+                    "WHERE COALESCE(a.canonical_video_id, i.video_id) "
+                    "= source_tracks.video_id "
+                    "AND COALESCE(c.state, 'active') = 'active') "
                     "AND video_id NOT IN (SELECT alias_video_id FROM source_aliases) "
                     "ORDER BY rowid LIMIT 1"
                 )
@@ -493,7 +583,12 @@ class IntakeLedger:
                 text(
                     "UPDATE source_tracks SET state = 'downloading', "
                     "lease_token = :token "
-                    "WHERE video_id = :id AND state = 'pending'"
+                    "WHERE video_id = :id AND state = 'pending' "
+                    "AND EXISTS (SELECT 1 FROM intake_items i "
+                    "LEFT JOIN source_aliases a ON a.alias_video_id = i.video_id "
+                    "LEFT JOIN intake_controls c ON c.intake_id = i.intake_id "
+                    "WHERE COALESCE(a.canonical_video_id, i.video_id) = :id "
+                    "AND COALESCE(c.state, 'active') = 'active')"
                 ),
                 {"id": canonical, "token": attempt_id},
             )

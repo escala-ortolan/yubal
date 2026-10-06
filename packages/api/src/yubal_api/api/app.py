@@ -54,7 +54,7 @@ from yubal_api.schemas.jobs import (
     UpdatedEvent,
 )
 from yubal_api.schemas.logs import LogEntry
-from yubal_api.services.filing import reconcile_filing
+from yubal_api.services.filing import recover_filing_and_downloads
 from yubal_api.services.intake_worker import IntakeWorker
 from yubal_api.services.job_event_bus import JobEventBus
 from yubal_api.services.job_executor import JobExecutor
@@ -214,6 +214,7 @@ def create_api_router() -> APIRouter:
         fresh_router.include_router(health.router)
         fresh_router.include_router(intakes.router)
         fresh_router.include_router(intakes.tracks_router)
+        fresh_router.include_router(intakes.schedules_router)
         return fresh_router
     api_router = APIRouter(prefix=f"{base_path}/api")
     api_router.include_router(health.router)
@@ -249,6 +250,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         lock_file = None
         stop = asyncio.Event()
         worker_task = None
+        scheduler_task = None
         try:
             if settings.intake_worker_enabled:
                 if settings.intake_staging is None:
@@ -260,10 +262,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 lock_file = (settings.db_path.parent / "intake-worker.lock").open("a+")
                 fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 worker = IntakeWorker(app.state.intake_ledger, staging)
-                await asyncio.to_thread(worker.recover_startup)
-                filed = await asyncio.to_thread(
-                    reconcile_filing, app.state.intake_ledger
-                )
+                filed = await asyncio.to_thread(recover_filing_and_downloads, worker)
                 if filed:
                     logger.warning("Filing reconciliation changed %d sources", filed)
 
@@ -277,11 +276,29 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                                 pass
 
                 worker_task = asyncio.create_task(run_worker())
+                from yubal_api.db.intake_controls import IntakeControls
+                from yubal_api.services.intake_scheduler import IntakeScheduler
+
+                intake_scheduler = IntakeScheduler(
+                    IntakeControls(app.state.intake_ledger)
+                )
+
+                async def run_intake_scheduler() -> None:
+                    while not stop.is_set():
+                        await asyncio.to_thread(intake_scheduler.run_once)
+                        try:
+                            await asyncio.wait_for(stop.wait(), timeout=10)
+                        except TimeoutError:
+                            pass
+
+                scheduler_task = asyncio.create_task(run_intake_scheduler())
             yield
         finally:
             stop.set()
             if worker_task is not None:
                 await worker_task
+            if scheduler_task is not None:
+                await scheduler_task
             if lock_file is not None:
                 fcntl.flock(lock_file, fcntl.LOCK_UN)
                 lock_file.close()
@@ -402,17 +419,27 @@ class SPAStaticFiles(StaticFiles):
     """SPA static files with base path injection into index.html."""
 
     def __init__(
-        self, *, base_path: str = "", directory: Path | str, **kwargs: Any
+        self,
+        *,
+        base_path: str = "",
+        directory: Path | str,
+        intake_only: bool = False,
+        **kwargs: Any,
     ) -> None:
         super().__init__(directory=directory, **kwargs)
         self._base_path = base_path
         self._dir = Path(directory)
+        self._intake_only = intake_only
         self._cached_index: str | None = None
 
     def _get_index_html(self) -> str:
         """Get index.html content with base path injected (cached)."""
         if self._cached_index is None:
             html = (self._dir / "index.html").read_text()
+            if self._intake_only:
+                html = html.replace(
+                    "</head>", '<meta name="yubal-intake-only" content="true"></head>'
+                )
             base_href = f"{self._base_path}/" if self._base_path else "/"
             html = re.sub(
                 r'<base\s+href="/"\s*/?>',
@@ -431,6 +458,11 @@ class SPAStaticFiles(StaticFiles):
             return await super().get_response(path, scope)
         except StarletteHTTPException as ex:
             if ex.status_code == 404:
+                if self._intake_only and (
+                    path.split("/", 1)[0] in {"api", "v1", "assets"}
+                    or Path(path).suffix
+                ):
+                    raise
                 return HTMLResponse(self._get_index_html())
             raise
 
@@ -496,7 +528,10 @@ def create_app() -> FastAPI:
 
     # API routes under /api prefix
     app.include_router(create_api_router())
-    if settings.intake_only:
+    if (
+        settings.intake_only
+        and not (settings.root / "web" / "dist" / "index.html").exists()
+    ):
         app.include_router(dashboard.router)
 
     # Static files from YUBAL_ROOT/web/dist
@@ -505,11 +540,16 @@ def create_app() -> FastAPI:
     mimetypes.add_type("text/css", ".css")
 
     web_build = settings.root / "web" / "dist"
-    if web_build.exists() and not settings.intake_only:
+    if (web_build / "index.html").exists():
         mount_path = f"{base_path}/" if base_path else "/"
         app.mount(
             mount_path,
-            SPAStaticFiles(base_path=base_path, directory=web_build, html=True),
+            SPAStaticFiles(
+                base_path=base_path,
+                directory=web_build,
+                html=True,
+                intake_only=settings.intake_only,
+            ),
             name="spa",
         )
 

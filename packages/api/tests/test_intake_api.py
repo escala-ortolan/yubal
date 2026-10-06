@@ -53,6 +53,30 @@ def test_fresh_mode_omits_legacy_and_requires_device_token(
     assert client.post("/v1/intakes", json={}).status_code == 401
 
 
+def test_react_assets_use_fresh_runtime_and_do_not_mask_api_errors(
+    intake_app: tuple[FastAPI, TestClient],
+) -> None:
+    from yubal_api.api.app import create_app
+    from yubal_api.settings import get_settings
+
+    build = get_settings().root / "web" / "dist"
+    build.mkdir(parents=True)
+    (build / "index.html").write_text(
+        '<html><head><base href="/"></head><body>React shell</body></html>'
+    )
+    (build / "app.js").write_text("console.log('fixture')")
+    client = TestClient(create_app())
+    assert 'name="yubal-intake-only" content="true"' in client.get("/").text
+    assert (
+        client.get("/app.js")
+        .headers["content-type"]
+        .startswith("application/javascript")
+    )
+    assert client.get("/api/jobs").status_code == 404
+    assert client.get("/v1/nonexistent").status_code == 404
+    assert client.get("/assets/missing.js").status_code == 404
+
+
 def test_submit_replay_conflict_readback_and_revoke(
     intake_app: tuple[FastAPI, TestClient],
 ) -> None:
@@ -221,6 +245,212 @@ def test_retry_tagging_is_device_scoped_and_never_re_downloads(
     assert ledger.tagging_candidate(video_id)[0].is_file()
 
 
+@pytest.mark.parametrize("mode", ["auto_song", "auto_queue", "auto_playlist"])
+def test_auto_intake_modes_are_accepted(
+    intake_app: tuple[FastAPI, TestClient], mode: str
+) -> None:
+    _, client = intake_app
+    device_id, token = client.app.state.intake_ledger.provision_device()
+    response = client.post(
+        "/v1/intakes",
+        json={
+            "request_id": str(uuid4()),
+            "device_id": device_id,
+            "mode": mode,
+            "source_context": {"kind": "song"},
+            "tracks": [{"video_id": "dQw4w9WgXcQ", "position": 0}],
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 202
+    assert response.json()["items"][0]["status"] == "pending"
+
+
+def test_unknown_intake_mode_is_rejected(
+    intake_app: tuple[FastAPI, TestClient],
+) -> None:
+    _, client = intake_app
+    device_id, token = client.app.state.intake_ledger.provision_device()
+    response = client.post(
+        "/v1/intakes",
+        json={
+            "request_id": str(uuid4()),
+            "device_id": device_id,
+            "mode": "automatic_whatever",
+            "tracks": [{"video_id": "dQw4w9WgXcQ", "position": 0}],
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 422
+    assert response.json() == {
+        "error": "invalid_request",
+        "message": "Invalid request",
+    }
+
+
+def test_playlist_preview_is_authenticated_and_does_not_submit(
+    intake_app: tuple[FastAPI, TestClient], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mock metadata lookup; no live playlist or download is claimed."""
+    _, client = intake_app
+    ledger = client.app.state.intake_ledger
+    _, token = ledger.provision_device()
+    from yubal_api.api.routes import intakes
+
+    monkeypatch.setattr(
+        intakes,
+        "preview_playlist",
+        lambda playlist_id, limit: {
+            "playlist_id": playlist_id,
+            "title": "Test playlist",
+            "tracks": [
+                {"video_id": "dQw4w9WgXcQ", "position": 0, "title_hint": "Test"}
+            ],
+        },
+    )
+    path = "/v1/intakes/preview-playlist"
+    body = {"playlist_id": "PLtest", "limit": 10}
+    assert client.post(path, json=body).status_code == 401
+    headers = {"Authorization": f"Bearer {token}"}
+    result = client.post(path, json=body, headers=headers)
+    assert result.status_code == 200
+    assert result.json()["title"] == "Test playlist"
+    assert ledger.next_pending() is None
+    ledger.MAX_NEW_INTAKES_PER_MINUTE = 1
+    assert client.post(path, json=body, headers=headers).status_code == 429
+    assert (
+        client.post(
+            path, json={**body, "playlist_id": "https://evil.test"}, headers=headers
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(path, json={**body, "limit": 101}, headers=headers).status_code
+        == 422
+    )
+
+
+def test_dashboard_details_preserve_order_and_are_device_scoped(
+    intake_app: tuple[FastAPI, TestClient],
+) -> None:
+    _, client = intake_app
+    ledger = client.app.state.intake_ledger
+    device, token = ledger.provision_device()
+    _, other_token = ledger.provision_device()
+    headers = {"Authorization": f"Bearer {token}"}
+    body = {
+        "request_id": str(uuid4()),
+        "device_id": device,
+        "mode": "manual_playlist",
+        "source_context": {"kind": "playlist"},
+        "tracks": [
+            {"video_id": "dQw4w9WgXcQ", "position": 0, "title_hint": "First"},
+            {"video_id": "dQw4w9WgXcQ", "position": 1, "title_hint": "Repeat"},
+        ],
+    }
+    intake = client.post("/v1/intakes", json=body, headers=headers).json()["intake_id"]
+    claim = ledger.claim("dQw4w9WgXcQ")
+    ledger.fail(claim, "Download/verification failed: ValueError")
+    detail = client.get(f"/v1/intakes/{intake}/details", headers=headers)
+    assert detail.status_code == 200
+    assert detail.json()["request"]["mode"] == "manual_playlist"
+    assert [t["title_hint"] for t in detail.json()["request"]["tracks"]] == [
+        "First",
+        "Repeat",
+    ]
+    track = client.get("/v1/tracks/dQw4w9WgXcQ/details", headers=headers)
+    assert track.status_code == 200
+    assert track.json()["attempts"][0]["status"] == "failed"
+    assert (
+        track.json()["attempts"][0]["error"]
+        == "Download/verification failed: ValueError"
+    )
+    for path in [f"/v1/intakes/{intake}/details", "/v1/tracks/dQw4w9WgXcQ/details"]:
+        assert client.get(path).status_code == 401
+        assert (
+            client.get(
+                path, headers={"Authorization": f"Bearer {other_token}"}
+            ).status_code
+            == 404
+        )
+
+
+def test_schedule_and_job_controls_are_authenticated_and_device_scoped(
+    intake_app: tuple[FastAPI, TestClient],
+) -> None:
+    _, client = intake_app
+    ledger = client.app.state.intake_ledger
+    device, token = ledger.provision_device()
+    _, other_token = ledger.provision_device()
+    headers = {"Authorization": f"Bearer {token}"}
+    other = {"Authorization": f"Bearer {other_token}"}
+    spec = {"title": "Daily playlist", "playlist_id": "PLtest", "cron": "0 6 * * *"}
+    assert client.post("/v1/schedules", json=spec).status_code == 401
+    created = client.post("/v1/schedules", json=spec, headers=headers)
+    assert created.status_code == 201
+    schedule_id = created.json()["id"]
+    assert client.get("/v1/schedules", headers=other).json() == []
+    assert (
+        client.delete(f"/v1/schedules/{schedule_id}", headers=other).status_code == 404
+    )
+    assert (
+        client.post(f"/v1/schedules/{schedule_id}/run", headers=headers).status_code
+        == 202
+    )
+    assert (
+        client.put(
+            f"/v1/schedules/{schedule_id}",
+            json={**spec, "enabled": False},
+            headers=headers,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            "/v1/schedules", json={**spec, "cron": "invalid"}, headers=headers
+        ).status_code
+        == 422
+    )
+    assert (
+        client.delete(f"/v1/schedules/{schedule_id}", headers=headers).status_code
+        == 200
+    )
+    intake = ledger.submit(str(uuid4()), device, "manual_song", ["dQw4w9WgXcQ"])
+    endpoint = f"/v1/intakes/{intake}/control"
+    assert (
+        client.patch(endpoint, json={"state": "cancelled"}, headers=other).status_code
+        == 404
+    )
+    assert (
+        client.patch(endpoint, json={"state": "cancelled"}, headers=headers).status_code
+        == 200
+    )
+    assert ledger.next_pending() is None
+    assert (
+        client.get(f"/v1/intakes/{intake}/details", headers=headers).json()["state"]
+        == "cancelled"
+    )
+    action = {"request_id": str(uuid4())}
+    assert (
+        client.request(
+            "DELETE", "/v1/tracks/dQw4w9WgXcQ", json=action, headers=other
+        ).status_code
+        == 404
+    )
+    assert (
+        client.request(
+            "DELETE", "/v1/tracks/dQw4w9WgXcQ", json=action, headers=headers
+        ).status_code
+        == 200
+    )
+    assert (
+        client.request(
+            "DELETE", "/v1/tracks/dQw4w9WgXcQ", json=action, headers=headers
+        ).status_code
+        == 200
+    )
+
+
 def test_retry_is_explicit_and_device_scoped(
     intake_app: tuple[FastAPI, TestClient],
 ) -> None:
@@ -343,6 +573,15 @@ def test_checked_in_client_schema_matches_fresh_generated_openapi(
         "tagged",
         "filed",
         "missing_output",
+    }
+    intake_mode = schema["components"]["schemas"]["IntakeRequest"]["properties"]["mode"]
+    assert set(intake_mode["enum"]) == {
+        "manual_song",
+        "manual_queue",
+        "manual_playlist",
+        "auto_song",
+        "auto_queue",
+        "auto_playlist",
     }
     final_path = properties["final_path"]
     assert {option["type"] for option in final_path["anyOf"]} == {"string", "null"}

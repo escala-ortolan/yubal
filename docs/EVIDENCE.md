@@ -221,3 +221,85 @@ own suite reported **41 passed** across 7 files after the change, with `tsc
 --noEmit` and `eslint .` exiting 0. These are consumer-side unit tests only:
 no client binary was built, installed or run against this backend, so the
 round trip remains **NOT TESTED** on both sides.
+
+## Automatic intake mode labels
+
+Implemented the request in
+`/srv/dev/repos/ytmusic/docs/YUBAL-AUTO-MODES-REQUEST.md` as contract version
+`2026-10-05.filing2`. Focused API tests were run red first: all three new
+`auto_*` submissions returned 422. After extending both `IntakeRequest.mode`
+and the ledger's mode allowlist, `auto_song`, `auto_queue` and `auto_playlist`
+each return 202, while an unknown mode remains 422. `auto_song`, like
+`manual_song`, requires exactly one track. No request fields or routes changed;
+the labels are persisted with the intake for client/source distinction.
+
+The OpenAPI fixture was regenerated and the API tests assert its mode enum has
+all six supported labels. Full regression and static-check results for this
+change: `pytest packages/api/tests packages/yubal/tests -q` -> **746 passed,
+1 Starlette/httpx deprecation warning in 12.21s**; `ruff check` and
+`ruff format --check` -> **All checks passed**; targeted `ty check` on the route
+and ledger modules -> **All checks passed**. No live server/container was
+restarted as part of this backend-only source change.
+
+## React UI and backend review (2026-10-05–06)
+
+Contract `2026-10-05.ui1` adds device-scoped intake/track details and public
+playlist preview, retaining the auto-mode changes and existing response shapes.
+See `docs/UI-REVIEW.md` for delivered features, reviewed areas and remaining gaps.
+
+- Backend full regression: **756 passed**, one existing Starlette/httpx warning,
+  in 18.29s. Includes actual generated audio, a real cross-filesystem filing copy
+  to `/dev/shm`, process death between publication and source unlink, concurrent
+  retries, atomic no-overwrite tests and real application startup recovery ordering.
+- No-overwrite tests first reproduced the old bug: two concurrent writers both
+  succeeded and a dangling destination symlink was replaced. Both now pass.
+- Ruff check/format and targeted type checks for intake routes, ledger, playlist
+  preview and filing pass. Frontend: **65 tests passed**, TypeScript/Vite production
+  build and ESLint on changed UI files passed.
+- Playwright against isolated Coder HTTP port 18011: connected a locally
+  provisioned temporary device, accepted a song, polled real HTTP/SQLite history,
+  opened details, submitted an ordered duplicate playlist, switched playlist tab,
+  disconnected, and checked desktop/390px mobile with no JS errors or document
+  overflow. Lost-response injection completed the POST server-side then dropped
+  its response; browser retry sent an identical UUID/body. Test tokens were
+  revoked afterward and never printed.
+- Browser playlist preview metadata was explicitly mocked. A separate real
+  unauthenticated `preview_playlist` call returned three ordered entries for the
+  documented public test playlist. No real audio download was claimed for UI tests.
+- Built pinned isolated image `yubal:intake-ui-staging`, final image ID
+  `sha256:034a377fe0a82f1ae43042e5461c64dbb25c692f0192723e75fe357578ef8387`.
+  Container smoke check verified React root/assets, fresh health and legacy 404
+  before the final filing hardening rebuild; the final rebuild's app/migration
+  build checks also pass. No production cutover or Git commit/push was performed.
+
+## Authorized schedule/job/ledger controls (2026-10-06)
+
+User explicitly requested ledger-backed schedule and job-control equivalents,
+plus forget-song and force-redownload options. Contract is now
+`2026-10-06.ui2`; migration is `91a30c1e0003`.
+
+- Final backend regression: **766 passed**, one existing Starlette/httpx
+  deprecation warning, in 26.40s. Ruff check/format and targeted type checks
+  including app, routes, ledger, controls, scheduler, preview and filing pass.
+- Frontend production TypeScript/Vite build, changed-file ESLint and all **65
+  frontend tests** pass.
+- Real SQLite tests verify cancellation preserves shared work; source/alias
+  ownership blocks cross-device resets; concurrent same-UUID force actions
+  create one new intake; explicit resets preserve synthetic fixture files;
+  revoked-device schedules do not fetch metadata.
+- A scheduler subprocess using explicitly mocked playlist metadata was killed
+  after committing intake submission but before updating schedule completion.
+  Restart reused the persisted snapshot/UUID and left exactly one intake.
+- Migration tests upgraded an old ledger to the new revision, downgraded and
+  re-upgraded it, and restored a pre-upgrade SQLite backup with integrity and
+  original source/version checks. No production DB was migrated.
+- Playwright against isolated port 18012 exercised schedule create/pause/run/delete,
+  job cancel/resume/delete-from-history, force-redownload, and forget-song followed
+  by an actual authenticated 404 track read. A synthetic failed attempt enabled
+  the force control; no real media transfer was claimed. Existing lost-response,
+  playlist ordering, polling, desktop/mobile and disconnect checks also passed.
+- Final image: `yubal:intake-ui-staging`,
+  `sha256:72e5cae69bd600eed33c6b3548094288b3a379a6ff32d51722db92fefc742977`.
+  Container smoke test exercised its migrations, React root/assets, authentication,
+  schedules, auto-song submission, replay-safe force action and forget action.
+  No Git push, production restart, library mutation or cutover was performed.

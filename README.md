@@ -1,13 +1,19 @@
 # Custom Yubal — OpenCode handoff
 
-Planning only. No fork built, no live service changed, no production deployment authorized by this documentation request.
+Custom backend fork of guillevc/yubal, pinned to upstream
+`78d63846712178ded0b5f3c2552a80e952451c3c`.
 
 Read AGENTS.md, docs/IMPLEMENTATION-PLAN.md, docs/CLIENT-CONTRACT.md and docs/PRIOR-RECOMMENDATION.md.
 
 ## Status and how to use it
 
-The intake backend is implemented and tested in an isolated configuration. It is
-not deployed anywhere.
+The durable intake backend is deployed on VM1. Current working-tree UI changes
+are tested in isolated staging and require a separate production deployment.
+
+The React frontend retains upstream styling/components and provides fresh-mode
+download history, playlist previews, ordered track status and attempt details.
+Build with `Dockerfile.intake`, or see `docs/UI-REVIEW.md` for local development,
+feature coverage and the backend review.
 
 - **Start it and use it:** `docs/RUNNING.md`
 - **API endpoints and credentials:** `docs/API.md`
