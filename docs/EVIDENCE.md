@@ -368,3 +368,62 @@ plus forget-song and force-redownload options. Contract is now
   stayed up, SQLite integrity was `ok` at revision `91a30c1e0003`, and public
   UI and health returned 200. The existing device credential pair was neither
   rotated nor exported.
+
+## Flat metadata filenames (2026-10-06)
+
+- Backend request `YUBAL-FLAT-FILENAMES-REQUEST.md` implemented without an API
+  schema change. New claims plan a flat staging placeholder; the worker downloads
+  using server-side yt-dlp artist/uploader/title metadata into a unique hidden
+  in-progress basename and atomically publishes `Artist - Title.m4a` directly in
+  staging. Collisions use a video-ID suffix rather than overwriting another file.
+  Decoded PCM and byte-hash verification remain required before ledger completion.
+- Deterministic worker tests were run red before implementation. They now check
+  flat parent/name, path stored in the attempt ledger, filename sanitization,
+  collision no-clobber, out-of-staging rejection and crash recovery both before
+  and after metadata-derived publication. The separate offline reset test checks
+  dry-run, token non-disclosure in output, 0600 backup integrity,
+  restore, preserved device/schedule configuration and cleared download history.
+- A real isolated, cookie-free download of `jNQXAC9IVRw` produced
+  `jawed - Me at the zoo.m4a` directly under local staging. Independently decoded
+  and verified: 309136 bytes, 19.063583 seconds, AAC and a PCM fingerprint.
+  This is isolated Coder staging, not a production download.
+- Full regression after these changes: **772 passed**, one existing
+  Starlette/httpx deprecation warning (22.85s); Ruff check and format and
+  targeted type checks on ledger, worker and owner reset passed.
+- Built the pinned isolated image `yubal:intake-flat-20261006`, ID
+  `sha256:f9286555c821160ce2059409802cb227205f4cdb4423803dae43a9128643a237`.
+  Its UI build argument explicitly says `uncommitted` rather than claiming the
+  prior Git commit contains this change. Container smoke testing generated and
+  verified real AAC, published a flat name, ran the offline reset with a
+  restorable SQLite backup, and confirmed audio/device preservation.
+
+## VM1 flat staging and full ledger reset (2026-10-06)
+
+- User explicitly chose **all download history** for the reset. VM1 had no
+  in-flight source downloads or active scheduled runs before shutdown.
+- Saved `/opt/youtube/backups/docker-compose.yml.20261006-112519.pre-flat`
+  and an online, integrity-checked SQLite snapshot at
+  `/opt/youtube/intake-state/yubal/yubal.db.20261006-112519.pre-flat.backup`
+  (167936 bytes, 28 sources). Stopped only `yubal` and ran the owner-only reset
+  in a container mounting **only `/state`**, not the music/NFS volume. The
+  reset created an additional offline SQLite backup at
+  `/opt/youtube/intake-state/yubal/yubal.db.20261006-112519.before-clear.backup`
+  (0600, uid1000/gid2000, integrity `ok`, 28 original sources).
+- Before reset: 28 sources, 28 attempts, 33 intake items, 11 intakes,
+  27 downstream stage rows, one rate event, three devices and zero schedules.
+  After reset: zero sources, attempts, items, intakes, downstream stages,
+  aliases, action receipts, controls and rate events. All three device records
+  and token hashes matched the offline backup exactly; two remained active.
+  Schedule configurations were retained (none existed at the time). No audio
+  file was deleted or migrated.
+- Recreated only `yubal` using `yubal:intake-flat-20261006`, preserving VM1's
+  live NFS staging and local ext4 DB mounts. Startup completed without another
+  migration. DB integrity remained `ok` at `91a30c1e0003`; public UI and health
+  returned 200, and unauthenticated schedules returned 401. This is service and
+  schema verification, not a claim of a new **production** download under the
+  flat naming path. The real completed-download proof above used isolated Coder
+  staging; production NFS hard-link publication remains to be exercised by the
+  next authorized intake submission.
+- At the initial flat-name cutover, these source edits were uncommitted. The
+  image from that cutover is preserved by its local tag and ID above, and the
+  two VM1 backups allow restoration of the pre-reset ledger if requested.

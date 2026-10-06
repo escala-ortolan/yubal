@@ -2,7 +2,7 @@
 # The host paths are local VM1 disk. Do not place /state on NFS.
 services:
   yubal:
-    image: yubal:intake-ui-20261006-session
+    image: yubal:intake-flat-20261006-git
     container_name: yubal
     environment:
       YUBAL_HOST: 0.0.0.0
@@ -11,7 +11,7 @@ services:
       YUBAL_DATA: /app/data/downloads
       YUBAL_INTAKE_ONLY: "true"
       YUBAL_INTAKE_WORKER_ENABLED: "true"
-      # Stage into the Music volume while the SQLite ledger stays on local disk.
+      # Stage flat metadata-named audio in Music while SQLite stays on local disk.
       YUBAL_INTAKE_STAGING: /music/intake-staging
       YUBAL_SCHEDULER_ENABLED: "false"
       YUBAL_TZ: UTC

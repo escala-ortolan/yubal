@@ -121,6 +121,25 @@ scheduled playlist captures, cancel/resume/delete-from-history, and explicit
 force-redownload/forget-song controls. See `docs/UI-REVIEW.md` for the build and
 `docs/CLIENT-CONTRACT.md` for action semantics and migration/rollback requirements.
 
+## Flat staging files and owner-only history reset
+
+New verified downloads are stored directly in `YUBAL_INTAKE_STAGING` as
+`Artist - Title.m4a`, with the uploader used when the artist is unavailable.
+Names come from server-side yt-dlp metadata, not client hints. When a name
+already exists, Yubal adds the video ID (and, if needed, a short attempt ID)
+rather than overwriting another recording. Interrupted transfers may briefly
+leave a hidden `.yubal-inflight-*` file in the same staging root.
+
+An owner can inspect reset counts with `python scripts/reset_intake_history.py`
+on the server. A reset requires stopping only the `yubal` service and running
+`python scripts/reset_intake_history.py --apply --backup /state/yubal/<unique>.db`
+inside the image before bringing that service back up. The command creates and
+integrity-checks a 0600 SQLite backup and clears intakes, memberships, source
+identities, aliases, attempts, downstream state, reset receipts and rate events.
+It preserves device credentials, schedule configurations and *all audio files*.
+Run it only when you intentionally want previously downloaded IDs to be
+downloadable again; existing old nested audio files are not migrated or removed.
+
 | Thing | Path |
 | --- | --- |
 | This guide | `docs/RUNNING.md` |

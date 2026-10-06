@@ -84,6 +84,145 @@ def test_worker_uses_ledger_and_restart_never_redownloads(
     assert calls == ["dQw4w9WgXcQ"]
 
 
+def test_metadata_name_is_flat_and_download_path_is_recorded(
+    worker_ledger: IntakeLedger, sample_audio: Path, tmp_path: Path
+) -> None:
+    staging = tmp_path / "staging"
+
+    def transfer(_video_id: str, template: Path) -> Path:
+        assert template.parent == staging
+        assert "%(artist,uploader|Unknown Artist)s - %(title)s" in template.name
+        output = template.with_name(
+            template.name.replace(
+                "%(artist,uploader|Unknown Artist)s", "The Artist"
+            ).replace("%(title)s", "A Title")
+            + ".m4a"
+        )
+        shutil.copyfile(sample_audio, output)
+        return output
+
+    assert IntakeWorker(worker_ledger, staging, transfer).run_once()
+    final = staging / "The Artist - A Title.m4a"
+    assert final.is_file()
+    assert sorted(path.name for path in staging.glob("*.m4a")) == [final.name]
+    assert not any(path.is_dir() for path in staging.iterdir())
+    assert worker_ledger.tagging_candidate("dQw4w9WgXcQ")[0] == final
+    with worker_ledger.engine.connect() as connection:
+        from sqlalchemy import text
+
+        stored = connection.execute(
+            text("SELECT planned_path,audio_path FROM download_attempts")
+        ).one()
+        assert stored == (str(final), str(final))
+
+
+def test_filename_collision_never_overwrites_other_recording(
+    worker_ledger: IntakeLedger, sample_audio: Path, tmp_path: Path
+) -> None:
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    existing = staging / "The Artist - A Title.m4a"
+    existing.write_bytes(b"another recording")
+
+    def transfer(_video_id: str, template: Path) -> Path:
+        output = template.with_name(
+            template.name.replace(
+                "%(artist,uploader|Unknown Artist)s", "The Artist"
+            ).replace("%(title)s", "A Title")
+            + ".m4a"
+        )
+        shutil.copyfile(sample_audio, output)
+        return output
+
+    assert IntakeWorker(worker_ledger, staging, transfer).run_once()
+    assert existing.read_bytes() == b"another recording"
+    assert (staging / "The Artist - A Title [dQw4w9WgXcQ].m4a").is_file()
+    assert worker_ledger.state("dQw4w9WgXcQ") == "downloaded"
+
+
+def test_metadata_filename_is_sanitized_and_never_escapes_staging(
+    worker_ledger: IntakeLedger, sample_audio: Path, tmp_path: Path
+) -> None:
+    from yubal_api.services.intake_worker import sanitize_filename
+
+    assert (
+        sanitize_filename("\tArtist\\ - Title /... \x00.m4a", "dQw4w9WgXcQ")
+        == "Artist - Title.m4a"
+    )
+    assert sanitize_filename("....m4a", "dQw4w9WgXcQ") == "dQw4w9WgXcQ.m4a"
+    assert len(sanitize_filename("é" * 300 + ".m4a", "dQw4w9WgXcQ").encode()) <= 240
+    staging = tmp_path / "staging"
+    outside = tmp_path / "outside.m4a"
+    shutil.copyfile(sample_audio, outside)
+    assert IntakeWorker(worker_ledger, staging, lambda *_: outside).run_once()
+    assert worker_ledger.state("dQw4w9WgXcQ") == "failed"
+    assert outside.is_file()
+
+
+def test_restart_recovers_flat_published_audio_without_redownloading(
+    worker_ledger: IntakeLedger, sample_audio: Path, tmp_path: Path
+) -> None:
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    claim = worker_ledger.claim("dQw4w9WgXcQ", staging_root=staging)
+    assert claim is not None
+    assert worker_ledger.planned_output(claim) == staging / "dQw4w9WgXcQ.m4a"
+    flat = staging / "The Artist - A Title.m4a"
+    worker_ledger.plan_actual_output(claim, flat)
+    shutil.copyfile(sample_audio, flat)
+    worker = IntakeWorker(
+        worker_ledger, staging, lambda *_: pytest.fail("must not redownload")
+    )
+    worker.recover_startup()
+    assert worker_ledger.state("dQw4w9WgXcQ") == "downloaded"
+    assert worker_ledger.attempt_count("dQw4w9WgXcQ") == 1
+    assert worker.run_once() is False
+
+
+def test_process_death_after_metadata_publication_recovers_flat_audio(
+    worker_ledger: IntakeLedger, sample_audio: Path, tmp_path: Path
+) -> None:
+    staging = tmp_path / "staging"
+    script = """
+import os, shutil, sys
+from pathlib import Path
+from sqlalchemy import create_engine
+from yubal_api.db.intake_ledger import IntakeLedger
+from yubal_api.services.intake_worker import IntakeWorker
+ledger=IntakeLedger(create_engine('sqlite:///'+sys.argv[1]))
+def transfer(_video_id, template):
+    name=template.name.replace('%(artist,uploader|Unknown Artist)s','Recovered Artist')
+    output=template.with_name(name.replace('%(title)s','Recovered Title')+'.m4a')
+    shutil.copyfile(sys.argv[3], output)
+    return output
+ledger.complete=lambda *_: os._exit(17)
+IntakeWorker(ledger, Path(sys.argv[2]), transfer).run_once()
+"""
+    child = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            script,
+            str(tmp_path / "worker.db"),
+            str(staging),
+            str(sample_audio),
+        ],
+        check=False,
+    )
+    assert child.returncode == 17
+    flat = staging / "Recovered Artist - Recovered Title.m4a"
+    assert flat.is_file() and flat.parent == staging
+    assert worker_ledger.state("dQw4w9WgXcQ") == "downloading"
+    restarted = IntakeWorker(
+        worker_ledger, staging, lambda *_: pytest.fail("must recover without download")
+    )
+    restarted.recover_startup()
+    assert worker_ledger.state("dQw4w9WgXcQ") == "downloaded"
+    assert worker_ledger.attempt_count("dQw4w9WgXcQ") == 1
+    assert sorted(path.name for path in staging.iterdir()) == [flat.name]
+    assert restarted.run_once() is False
+
+
 def test_crash_after_output_recovers_without_second_transfer(
     worker_ledger: IntakeLedger, sample_audio: Path, tmp_path: Path
 ) -> None:

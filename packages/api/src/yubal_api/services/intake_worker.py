@@ -2,7 +2,10 @@
 
 import hashlib
 import json
+import os
+import re
 import subprocess
+import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 
@@ -12,6 +15,19 @@ from yubal.services.download_service import YTDLPDownloader
 from yubal_api.db.intake_ledger import IntakeLedger, VerifiedAudio
 
 Transfer = Callable[[str, Path], Path]
+
+
+def sanitize_filename(filename: str, video_id: str) -> str:
+    """Turn yt-dlp's server-side metadata basename into one safe m4a filename."""
+    stem = filename[:-4] if filename.lower().endswith(".m4a") else filename
+    stem = "".join(
+        " " if char in "/\\" or unicodedata.category(char).startswith("C") else char
+        for char in stem
+    )
+    stem = re.sub(r"\s+", " ", stem).strip(" .")[:150].rstrip(" .")
+    while len(stem.encode("utf-8")) > 235:
+        stem = stem[:-1].rstrip(" .")
+    return f"{stem or video_id}.m4a"
 
 
 def verify_audio(path: Path) -> VerifiedAudio:
@@ -130,8 +146,13 @@ class IntakeWorker:
         for claim in self.ledger.inflight():
             try:
                 output = self.ledger.planned_output(claim)
-                if output.is_relative_to(self.staging_root):
+                if output.is_relative_to(self.staging_root) and not output.is_symlink():
                     self.ledger.complete(claim, verify_audio(output))
+                    for temporary in self.staging_root.glob(
+                        f".yubal-inflight-{claim.attempt_id}-*.m4a"
+                    ):
+                        if not temporary.is_symlink() and temporary.samefile(output):
+                            temporary.unlink()
                 else:
                     self.ledger.fail(claim, "Invalid staging path")
             except (ValueError, OSError):
@@ -147,12 +168,41 @@ class IntakeWorker:
         if claim is None:
             return False
         try:
-            output = self.ledger.planned_output(claim)
-            output.parent.mkdir(parents=True, exist_ok=True)
-            actual = self.transfer(claim.video_id, output.with_suffix(""))
-            if actual != output:
-                raise ValueError("Downloader did not return planned m4a path")
-            self.ledger.complete(claim, verify_audio(actual))
+            self.staging_root.mkdir(parents=True, exist_ok=True)
+            prefix = f".yubal-inflight-{claim.attempt_id}-"
+            template = self.staging_root / (
+                prefix + "%(artist,uploader|Unknown Artist)s - %(title)s"
+            )
+            actual = self.transfer(claim.video_id, template)
+            if (
+                actual.parent.resolve() != self.staging_root
+                or actual.is_symlink()
+                or not actual.name.startswith(prefix)
+                or actual.suffix.lower() != ".m4a"
+            ):
+                raise ValueError("Downloader output escaped its flat staging template")
+            verify_audio(actual)
+            name = sanitize_filename(actual.name[len(prefix) :], claim.video_id)
+            stem = name[:-4]
+            choices = [
+                name,
+                f"{stem} [{claim.video_id}].m4a",
+                f"{stem} [{claim.video_id}-{claim.attempt_id[:8]}].m4a",
+            ]
+            for choice in choices:
+                flat = self.staging_root / choice
+                # Record the exact location before publishing so a kill between
+                # hardlink and ledger completion can recover without downloading.
+                self.ledger.plan_actual_output(claim, flat)
+                try:
+                    os.link(actual, flat, follow_symlinks=False)
+                except FileExistsError:
+                    continue
+                self.ledger.complete(claim, verify_audio(flat))
+                actual.unlink()
+                break
+            else:
+                raise ValueError("No collision-free staging filename")
         except Exception as exc:
             # Do not log yt-dlp errors or potentially sensitive URL/cookie contents.
             self.ledger.fail(

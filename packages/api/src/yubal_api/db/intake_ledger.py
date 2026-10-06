@@ -595,7 +595,7 @@ class IntakeLedger:
             if not changed.rowcount:
                 return None
             planned = (
-                str(staging_root / canonical / attempt_id / f"{canonical}.m4a")
+                str(staging_root / f"{canonical}.m4a")
                 if staging_root is not None
                 else None
             )
@@ -621,6 +621,39 @@ class IntakeLedger:
             if value is None:
                 raise ValueError("Attempt has no planned staging path")
             return Path(value)
+
+    def plan_actual_output(self, claim: Claim, destination: Path) -> None:
+        """Persist the metadata-derived path before publishing for crash recovery."""
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            planned = connection.execute(
+                text(
+                    "SELECT planned_path FROM download_attempts "
+                    "WHERE id=:attempt AND video_id=:video"
+                ),
+                {"attempt": claim.attempt_id, "video": claim.video_id},
+            ).scalar_one()
+            if (
+                planned is None
+                or destination.parent.resolve() != Path(planned).parent.resolve()
+                or destination.suffix.lower() != ".m4a"
+            ):
+                raise ValueError("Final output must be a flat m4a inside staging")
+            changed = connection.execute(
+                text(
+                    "UPDATE download_attempts SET planned_path=:path WHERE id=:attempt "
+                    "AND video_id=:video AND status='downloading' "
+                    "AND EXISTS (SELECT 1 FROM source_tracks WHERE video_id=:video "
+                    "AND state='downloading' AND lease_token=:attempt)"
+                ),
+                {
+                    "path": str(destination),
+                    "attempt": claim.attempt_id,
+                    "video": claim.video_id,
+                },
+            )
+            if not changed.rowcount:
+                raise IntakeConflict("Attempt no longer owns output")
 
     def inflight(self) -> list[Claim]:
         with self.engine.connect() as connection:
@@ -954,7 +987,7 @@ class IntakeLedger:
                 {"id": claim.attempt_id},
             ).scalar_one_or_none()
             if planned is not None and path != Path(planned):
-                raise ValueError("Download output differs from planned staging path")
+                raise ValueError("Download output differs from recorded staging path")
             if planned is not None and not audio.pcm_sha256:
                 raise ValueError("Planned audio needs a decoded-audio fingerprint")
         digest = hashlib.sha256()
@@ -996,7 +1029,7 @@ class IntakeLedger:
                     "UPDATE download_attempts SET status = 'downloaded', "
                     "audio_path = :path, audio_sha256 = :sha, pcm_sha256 = :pcm, "
                     "audio_bytes = :size, duration_seconds = :duration, "
-                    "codec = :codec WHERE id = :token"
+                    "codec = :codec, planned_path = :path WHERE id = :token"
                 ),
                 {
                     "token": claim.attempt_id,
