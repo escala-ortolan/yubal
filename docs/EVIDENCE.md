@@ -359,3 +359,12 @@ plus forget-song and force-redownload options. Contract is now
   Its downstream state was `waiting_for_tagger`, with no final path yet.
   The 24 `missing_output` rows were present in the pre-deployment backup;
   this download did not create them.
+- Committed and pushed `ea1e990` to the personal repository, built the pinned
+  image `yubal:intake-ui-20261006-session` (ID
+  `sha256:7c5697d4f87608109b67456df955506e4c7afd369fd08a240b755178a2436aad`),
+  and replaced only VM1's `yubal` container. Compose backup:
+  `/opt/youtube/backups/docker-compose.yml.20261006-110640.pre-session`.
+  No migration was introduced by this frontend patch. Post-cutover, the container
+  stayed up, SQLite integrity was `ok` at revision `91a30c1e0003`, and public
+  UI and health returned 200. The existing device credential pair was neither
+  rotated nor exported.
