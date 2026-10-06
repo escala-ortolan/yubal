@@ -466,6 +466,31 @@ plus forget-song and force-redownload options. Contract is now
 - Added tests for downloader hook metadata, worker persistence, API schema fields,
   and upgrading an existing ledger with `Alphaville - Forever Young (2019
   Remaster).m4a`. Full backend regression after the code changes: **773 passed**;
-  Ruff and targeted type checks passed. Frontend production build is verified by
-  the pinned container build `yubal:intake-ui3-working`, ID
-  `sha256:e57c1b40abe4059f4ef68e56016adeef48b722856c5b3d7192c9217a9ada6d10`.
+  Ruff and targeted type checks passed. Frontend production build passed in the
+  pinned committed container image below.
+
+## UI3 production deployment (2026-10-06)
+
+- Committed/pushed implementation as `334e0f2` to personal `main`. Built
+  `yubal:intake-ui3-20261006` with `VITE_COMMIT_SHA=334e0f2`, image ID
+  `sha256:79aa88bd3bf6c428afe208ba2d9f6f4a123540fa49f80d1b8b13b801543732d8`.
+  Docker build compiled the React/TypeScript UI and ran schema/migration smoke
+  checks; a disposable container independently migrated to `d42b6c1a0004` and
+  confirmed the new OpenAPI response fields.
+- Before the VM1 cutover, copied compose to
+  `/opt/youtube/backups/docker-compose.yml.20261006-124130.pre-ui3`. Took a
+  quiescent, integrity-checked SQLite online backup at
+  `/opt/youtube/intake-state/yubal/yubal.db.20261006-124214.quiescent-pre-ui3.backup`
+  (167936 bytes, mode 0600, uid1000/gid2000, prior revision `91a30c1e0003`,
+  9 sources, zero in-flight attempts). No music files or ledger identities were
+  removed; only `yubal` was recreated.
+- VM1 now runs the committed image at the expected image ID. Startup applied
+  migration `d42b6c1a0004`; SQLite integrity is `ok`. The migration backfilled
+  display metadata for all **9/9** existing source tracks from their flat
+  metadata-derived filenames. The target song now resolves as `Alphaville —
+  Forever Young (2019 Remaster)`; all other records also have title and artist.
+  Public UI and health return 200, and live OpenAPI contains both
+  `display_title` and `display_artist`.
+- Dashboard history now has title/artist search and newest/title/artist sorting.
+  Playlist track order remains intact. A subsequent fresh download stores
+  yt-dlp's exact title/artist values in the ledger at verification time.
