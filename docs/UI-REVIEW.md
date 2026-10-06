@@ -31,8 +31,10 @@ Unknown API and asset paths return 404 rather than a misleading SPA HTML respons
 - Cancel/resume jobs and delete from history without discarding source identity.
 - Explicit force-redownload and forget-song actions with replay-safe receipts,
   canonical/alias ownership checks, and preserved audio files.
-- Four-second polling with cancellation on view changes/disconnect; tokens stay
-  in tab memory. An uncertain POST is retried with the same request UUID/body.
+- Four-second polling with cancellation on view changes/disconnect. The dashboard
+  keeps the device pair in this tab's `sessionStorage` across refreshes; it clears
+  the pair on Disconnect or tab close and never puts it in a URL or localStorage.
+  An uncertain POST is retried with the same request UUID/body.
 - LAN HTTP-compatible request UUID generation using `crypto.getRandomValues`.
 
 After this review the user explicitly authorized ledger-backed schedules and job

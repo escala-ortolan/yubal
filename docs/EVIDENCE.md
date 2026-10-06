@@ -342,3 +342,20 @@ plus forget-song and force-redownload options. Contract is now
   new production download, schedule execution, or library mutation. The prior
   image cannot directly open the migrated DB; restore the pre-ui SQLite backup
   along with the pre-ui compose file if rollback is required.
+
+## Refresh credentials and live download check (2026-10-06)
+
+- A user-reported dashboard refresh cleared the UUID/token because the React
+  component held them only in memory. The frontend now uses per-tab
+  `sessionStorage` with Disconnect removal; it does not use localStorage or
+  server-side storage. A browser test against an isolated API verified login,
+  refresh retention, separate-tab isolation, and Disconnect followed by refresh.
+  Two focused storage tests plus the full **67-test** frontend suite, changed-file
+  ESLint and production TypeScript/Vite build passed. The test device was
+  provisioned and revoked locally without printing its credentials.
+- Read-only VM1 check found a `POST /v1/intakes` accepted at 11:00:51 UTC and
+  `HzdD8kbDzZA` verified as `downloaded` at 11:00:54 UTC. `verify_audio` decoded
+  its actual 3,645,210-byte AAC file (225.29 seconds) with a PCM fingerprint.
+  Its downstream state was `waiting_for_tagger`, with no final path yet.
+  The 24 `missing_output` rows were present in the pre-deployment backup;
+  this download did not create them.

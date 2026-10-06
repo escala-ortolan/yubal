@@ -14,6 +14,7 @@ import { Footer } from "@/components/layout/footer";
 import { ThemeToggler } from "@/components/layout/theme-toggler";
 import { requestId, videoIds } from "./input";
 import { SchedulePanel } from "./schedules";
+import { readDeviceSession, writeDeviceSession } from "./device-session";
 
 type Intake = components["schemas"]["IntakeDetailsResponse"];
 type Track = components["schemas"]["TrackDetailsResponse"];
@@ -23,10 +24,7 @@ const field =
 const label = (value: string) => value.replaceAll("_", " ");
 
 export function IntakeDashboard() {
-  const [credentials, setCredentials] = useState<{
-    device: string;
-    token: string;
-  } | null>(null);
+  const [credentials, setCredentials] = useState(readDeviceSession);
   const [device, setDevice] = useState("");
   const [token, setToken] = useState("");
   const [tab, setTab] = useState("downloads");
@@ -367,15 +365,17 @@ export function IntakeDashboard() {
               <KeyRoundIcon size={20} /> Connect your device
             </h2>
             <p>
-              Enter the credentials issued by this backend. They remain in
-              memory for this tab; reload or disconnect to forget them.
+              Enter the credentials issued by this backend. This tab remembers
+              them across refreshes; Disconnect or closing the tab forgets them.
             </p>
             <form
               className="space-y-3"
               onSubmit={(event) => {
                 event.preventDefault();
                 generation.current++;
-                setCredentials({ device: device.trim(), token: token.trim() });
+                const session = { device: device.trim(), token: token.trim() };
+                writeDeviceSession(session);
+                setCredentials(session);
                 setToken("");
               }}
             >
@@ -413,6 +413,7 @@ export function IntakeDashboard() {
                 variant="ghost"
                 onPress={() => {
                   generation.current++;
+                  writeDeviceSession(null);
                   setCredentials(null);
                   setIntakes([]);
                   setDetail(null);

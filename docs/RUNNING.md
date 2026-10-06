@@ -7,7 +7,9 @@ not touch your real music library, your Google account, or any running service.
 
 Open `http://127.0.0.1:8011/` for the built-in dashboard. It submits a video ID and
 shows its current state. It asks for a provisioned device UUID and token in the
-browser; neither is stored by the dashboard server. API documentation is at
+browser; the pair remains in that tab's session storage across refreshes and is
+cleared by Disconnect or closing the tab. Neither is stored by the dashboard
+server. API documentation is at
 `http://127.0.0.1:8011/docs`.
 
 ## 1. Is it a server?
