@@ -427,3 +427,24 @@ plus forget-song and force-redownload options. Contract is now
 - At the initial flat-name cutover, these source edits were uncommitted. The
   image from that cutover is preserved by its local tag and ID above, and the
   two VM1 backups allow restoration of the pre-reset ledger if requested.
+
+## Published and redeployed from Git (2026-10-06)
+
+- User subsequently authorized commit/push and redeployment. Committed flat
+  staging, reset script, tests and docs as `df0833f`; pushed to the personal
+  repository's `main` branch. The working tree was clean after the commit.
+- Rebuilt from the committed checkout with `VITE_COMMIT_SHA=df0833f` as
+  `yubal:intake-flat-20261006-git`, image ID
+  `sha256:109c05d681f8015389c4c68461b43385e091cab234e8b68c96ad2fdaf6cf4486`.
+  Before the second cutover, VM1 compose and SQLite were backed up locally:
+  `/opt/youtube/backups/docker-compose.yml.20261006-114220.pre-flat-git` and
+  `/opt/youtube/intake-state/yubal/yubal.db.20261006-114220.pre-flat-git.backup`.
+  The earlier pre-reset backups remain available separately.
+- Only `yubal` was recreated via `docker compose up -d --no-deps yubal`. After
+  startup, VM1 reported the intended image ID and a healthy local SQLite DB at
+  revision `91a30c1e0003`, still with **zero sources and zero intakes** and
+  two active devices. Public UI and health returned 200; unauthenticated
+  schedules returned 401. The reset was **not repeated** during this redeploy.
+- No production music download was initiated during the second cutover; the
+  isolated real-download evidence above proves the flat naming behavior, while
+  actual NFS staging publication on VM1 awaits a future authorized intake.
