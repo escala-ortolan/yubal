@@ -19,7 +19,7 @@ export YUBAL_SCHEDULER_ENABLED=false
 export YUBAL_AUDIO_FORMAT=m4a
 export YUBAL_INTAKE_ONLY=true
 export YUBAL_INTAKE_WORKER_ENABLED=false
-export YUBAL_INTAKE_STAGING=/tmp/opencode/yubal-intake-staging
+export YUBAL_INTAKE_STAGING=/tmp/opencode/_intake
 export UV_PYTHON_INSTALL_DIR=/tmp/opencode/yubal-python
 export UV_PROJECT_ENVIRONMENT=/tmp/opencode/yubal-venv
 export UV_CACHE_DIR=/tmp/opencode/yubal-cache
@@ -57,6 +57,9 @@ locally. It checks artist/title tags and the decoded-audio fingerprint against
 the verified download before recording `tagged`. It does not invoke external tagger or
 move audio. Metadata-only edits keep the download complete; replacing the audio
 with a different recording becomes `missing_output` upon reconciliation.
+See `docs/TAGGER-HANDOFF.md` for the tagger/Yubal responsibility boundary,
+state transitions, approved commands, failure handling, and why direct SQLite
+updates or substituting a similar library file are unsafe.
 
 After `tagged`, run
 `/tmp/opencode/yubal-venv/bin/python scripts/preview_intake_filing.py <video_id> /path/to/scratch/Music`.

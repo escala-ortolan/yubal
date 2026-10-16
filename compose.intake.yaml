@@ -11,8 +11,8 @@ services:
       YUBAL_DATA: /app/data/downloads
       YUBAL_INTAKE_ONLY: "true"
       YUBAL_INTAKE_WORKER_ENABLED: "true"
-      # Stage flat metadata-named audio in Music while SQLite stays on local disk.
-      YUBAL_INTAKE_STAGING: /music/intake-staging
+      # Stage flat metadata-named audio in Music/_intake; SQLite stays on local disk.
+      YUBAL_INTAKE_STAGING: /music/_intake
       YUBAL_SCHEDULER_ENABLED: "false"
       YUBAL_TZ: UTC
     ports:

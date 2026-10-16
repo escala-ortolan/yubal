@@ -108,7 +108,7 @@ def test_migration_upgrade_and_downgrade_on_scratch_db(
                     "WHERE video_id='dQw4w9WgXcQ'"
                 ),
                 {
-                    "path": "/music/intake-staging/Alphaville - "
+                    "path": "/music/_intake/Alphaville - "
                     "Forever Young (2019 Remaster).m4a"
                 },
             )

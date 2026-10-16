@@ -123,7 +123,8 @@ force-redownload/forget-song controls. See `docs/UI-REVIEW.md` for the build and
 
 ## Flat staging files and owner-only history reset
 
-New verified downloads are stored directly in `YUBAL_INTAKE_STAGING` as
+New verified downloads are stored directly in `YUBAL_INTAKE_STAGING` (production:
+`/music/_intake`) as
 `Artist - Title.m4a`, with the uploader used when the artist is unavailable.
 Names come from server-side yt-dlp metadata, not client hints. When a name
 already exists, Yubal adds the video ID (and, if needed, a short attempt ID)
