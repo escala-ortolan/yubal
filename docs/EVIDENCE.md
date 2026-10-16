@@ -494,3 +494,28 @@ plus forget-song and force-redownload options. Contract is now
 - Dashboard history now has title/artist search and newest/title/artist sorting.
   Playlist track order remains intact. A subsequent fresh download stores
   yt-dlp's exact title/artist values in the ledger at verification time.
+
+## Intake staging folder renamed to `_intake` (2026-10-16)
+
+- Changed the production setting from `/music/intake-staging` to
+  `/music/_intake` (`YUBAL_INTAKE_STAGING`). Updated the ledger migration
+  fixture and operator docs. No DB migration or ledger reset was involved.
+- Before redeploy, VM1 reported zero active `downloading` sources and the old
+  `/music/intake-staging` folder was empty. No staging audio needed moving.
+  Preserved compose at
+  `/opt/youtube/backups/docker-compose.yml.20261016-111703.pre-underscore-stage`.
+- Commit `ccbf8b1` was built on VM1 as `yubal:intake-under-20261016`, image ID
+  `sha256:a471eac4a9ef94442ca3276e2af260503e6e5c615619d5bc7a618a8c37cb4f67`.
+  The pinned Docker build passed, including the frontend TypeScript production
+  build and migration/schema smoke checks. Focused worker/ledger tests passed:
+  **27 passed**; Ruff and `git diff --check` passed. Docker Compose config
+  validation passed on VM1.
+- Recreated only the `yubal` container. It now reports
+  `YUBAL_INTAKE_STAGING=/music/_intake`; created that directory through the
+  container as uid1000/gid2000 (mode 0755). A create/remove write probe passed;
+  the directory contains zero files. Existing ledger remains at revision
+  `d42b6c1a0004`, SQLite integrity `ok`, and zero in-flight sources. Public
+  dashboard and health endpoint both returned HTTP 200.
+- No production download was started as a test. The verified test covers the
+  configured environment, mounted-folder creation/write permission, service
+  startup, and public health/UI; it does not claim a live media download.
