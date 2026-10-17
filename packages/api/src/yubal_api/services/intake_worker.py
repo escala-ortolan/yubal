@@ -221,7 +221,12 @@ class IntakeWorker:
             ):
                 raise ValueError("Downloader output escaped its flat staging template")
             verify_audio(actual)
-            name = sanitize_filename(actual.name[len(prefix) :], claim.video_id)
+            raw_name = actual.name[len(prefix) :]
+            title = self._download_metadata.get("title")
+            artist = self._download_metadata.get("artist")
+            if title and artist:
+                raw_name = f"{artist} - {title}{actual.suffix}"
+            name = sanitize_filename(raw_name, claim.video_id)
             suffix = Path(name).suffix
             stem = name[: -len(suffix)]
             choices = [
@@ -238,9 +243,7 @@ class IntakeWorker:
                     os.link(actual, flat, follow_symlinks=False)
                 except FileExistsError:
                     continue
-                fallback_title, fallback_artist = _metadata_from_filename(
-                    actual.name[len(prefix) :]
-                )
+                fallback_title, fallback_artist = _metadata_from_filename(name)
                 self.ledger.complete(
                     claim,
                     verify_audio(flat),

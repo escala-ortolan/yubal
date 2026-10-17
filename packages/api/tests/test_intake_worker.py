@@ -121,6 +121,39 @@ def test_worker_downloads_and_verifies_mp3(
     assert worker_ledger.tagging_candidate("dQw4w9WgXcQ")[0] == final
 
 
+def test_worker_names_download_from_primary_artist_metadata(
+    worker_ledger: IntakeLedger, sample_mp3: Path, tmp_path: Path
+) -> None:
+    staging = tmp_path / "staging"
+    workers: list[IntakeWorker] = []
+
+    def transfer(_video_id: str, template: Path) -> Path:
+        workers[0]._download_metadata.update(
+            {"title": "Both Can Be True", "artist": "Meghan Patrick"}
+        )
+        output = template.with_name(
+            template.name.replace(
+                "%(artist,uploader|Unknown Artist)s",
+                "Meghan Patrick, Trannie Anderson, Dallas Wilson, Michael Whitworth",
+            ).replace("%(title)s", "Both Can Be True")
+            + ".mp3"
+        )
+        shutil.copyfile(sample_mp3, output)
+        return output
+
+    worker = IntakeWorker(worker_ledger, staging, transfer)
+    workers.append(worker)
+    assert worker.run_once()
+    expected = staging / "Meghan Patrick - Both Can Be True.mp3"
+    assert expected.is_file()
+    assert worker_ledger.tagging_candidate("dQw4w9WgXcQ")[0] == expected
+    item = worker_ledger.items(
+        worker_ledger.history("test-device", limit=1, before=None)[0][0]
+    )[0]
+    assert item["display_title"] == "Both Can Be True"
+    assert item["display_artist"] == "Meghan Patrick"
+
+
 def test_worker_uses_ledger_and_restart_never_redownloads(
     worker_ledger: IntakeLedger, sample_audio: Path, tmp_path: Path
 ) -> None:

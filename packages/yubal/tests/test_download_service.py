@@ -788,7 +788,8 @@ class TestCancellation:
                                 "status": "finished",
                                 "info_dict": {
                                     "title": "Forever Young (2019 Remaster)",
-                                    "artist": "Alphaville",
+                                    "artist": "Alphaville, Songwriter One",
+                                    "artists": ["Alphaville", "Songwriter One"],
                                 },
                             }
                         )

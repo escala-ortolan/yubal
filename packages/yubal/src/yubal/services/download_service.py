@@ -225,11 +225,23 @@ class YTDLPDownloader:
                 info = d.get("info_dict", {})
                 if metadata_callback and isinstance(info, dict):
                     raw_title = info.get("track") or info.get("title")
-                    raw_artist = (
-                        info.get("artist")
-                        or info.get("creator")
-                        or info.get("uploader")
-                    )
+                    artists = info.get("artists")
+                    raw_artist = None
+                    if isinstance(artists, list):
+                        raw_artist = next(
+                            (
+                                name.strip()
+                                for name in artists
+                                if isinstance(name, str) and name.strip()
+                            ),
+                            None,
+                        )
+                    if not raw_artist:
+                        raw_artist = (
+                            info.get("artist")
+                            or info.get("creator")
+                            or info.get("uploader")
+                        )
                     title = raw_title.strip() if isinstance(raw_title, str) else None
                     artist = raw_artist.strip() if isinstance(raw_artist, str) else None
                     if title or artist:
