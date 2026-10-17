@@ -54,7 +54,7 @@ def preview_filing(
     root = music_root.resolve()
     folder = _safe_component(main_artist, max_bytes=MAX_PATH_COMPONENT_BYTES)
     filename = _safe_component(title, max_bytes=MAX_PATH_COMPONENT_BYTES - 4)
-    destination = root / folder / f"{filename}.m4a"
+    destination = root / folder / f"{filename}{source.suffix.lower()}"
     sidecars = tuple(
         (source.with_suffix(suffix), destination.with_suffix(suffix))
         for suffix in SIDECAR_SUFFIXES

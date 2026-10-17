@@ -519,3 +519,19 @@ plus forget-song and force-redownload options. Contract is now
 - No production download was started as a test. The verified test covers the
   configured environment, mounted-folder creation/write permission, service
   startup, and public health/UI; it does not claim a live media download.
+
+## Intake output switched from M4A to MP3 (2026-10-17)
+
+- Confirmed the fresh intake worker explicitly configured yt-dlp for M4A despite
+  the separate general setting defaulting to Opus. The live attempt ledger showed
+  AAC audio streams in `.m4a` containers.
+- Changed fresh intake downloads to MP3. Verification now decodes MP3 and retains
+  M4A verification compatibility for previously recorded files; crash recovery
+  and collision-safe filenames accept either extension. Filing preserves the
+  verified source extension. New songs therefore file as `.mp3`, while existing
+  M4A records/files are not transcoded or moved by this release.
+- Added tests for actual locally generated MP3 verification, MP3 worker config,
+  staging and filing paths, plus existing M4A recovery/filing compatibility.
+  Full API/downloader test suite: **795 passed** (one existing
+  Starlette/httpx deprecation warning); targeted Ruff and `ty` checks passed.
+  No production download is used as build/test evidence.

@@ -598,7 +598,7 @@ class IntakeLedger:
             if not changed.rowcount:
                 return None
             planned = (
-                str(staging_root / f"{canonical}.m4a")
+                str(staging_root / f"{canonical}.mp3")
                 if staging_root is not None
                 else None
             )
@@ -639,9 +639,9 @@ class IntakeLedger:
             if (
                 planned is None
                 or destination.parent.resolve() != Path(planned).parent.resolve()
-                or destination.suffix.lower() != ".m4a"
+                or destination.suffix.lower() not in {".mp3", ".m4a"}
             ):
-                raise ValueError("Final output must be a flat m4a inside staging")
+                raise ValueError("Final output must be supported audio inside staging")
             changed = connection.execute(
                 text(
                     "UPDATE download_attempts SET planned_path=:path WHERE id=:attempt "

@@ -16,7 +16,7 @@ export YUBAL_ROOT=/srv/dev/repos/yubal
 export YUBAL_CONFIG=/tmp/opencode/yubal-config-test
 export YUBAL_DATA=/tmp/opencode/yubal-staging-test
 export YUBAL_SCHEDULER_ENABLED=false
-export YUBAL_AUDIO_FORMAT=m4a
+export YUBAL_AUDIO_FORMAT=mp3
 export YUBAL_INTAKE_ONLY=true
 export YUBAL_INTAKE_WORKER_ENABLED=false
 export YUBAL_INTAKE_STAGING=/tmp/opencode/_intake
@@ -41,7 +41,7 @@ The fresh API accepts intent. To exercise automatic downloads in isolation,
 explicitly set `YUBAL_INTAKE_WORKER_ENABLED=true` and the staging path above;
 the worker uses pinned upstream yt-dlp and requires `ffprobe`/`ffmpeg` in PATH.
 It holds an exclusive local lock, serially processes pending sources and verifies
-real m4a decode/checksum before marking `downloaded`. It does not call external tagger,
+real MP3 decode/checksum before marking `downloaded`. It does not call external tagger,
 file into Music, or serve audio. Failed downloads require explicit device-scoped
 retry; missing completed audio never auto-redownloads. Keep the API on an
 isolated loopback test port; use HTTPS before remote device access.
@@ -104,5 +104,5 @@ snapshot-pinned yet.
 For the local test suite, ffmpeg/ffprobe 7.0.2 static binaries were installed in
 `/tmp/opencode/yubal-ffmpeg-bin` from johnvansickle.com's release archive;
 prepend that directory to PATH for worker tests. Their network transfer is a
-**fake copy of a locally generated, playable AAC m4a**; it is not evidence of a
+**fake copy of locally generated, playable audio**; it is not evidence of a
 real YouTube download. Separate real-download results are in `docs/EVIDENCE.md`.

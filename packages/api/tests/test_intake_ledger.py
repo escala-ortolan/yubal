@@ -109,7 +109,7 @@ def test_migration_upgrade_and_downgrade_on_scratch_db(
                 ),
                 {
                     "path": "/music/_intake/Alphaville - "
-                    "Forever Young (2019 Remaster).m4a"
+                    "Forever Young (2019 Remaster).mp3"
                 },
             )
         command.upgrade(config, "91a30c1e0003")

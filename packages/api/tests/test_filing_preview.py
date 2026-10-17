@@ -22,7 +22,7 @@ def tagged_source(tmp_path: Path) -> tuple[IntakeLedger, Path]:
     metadata.create_all(engine)
     ledger = IntakeLedger(engine)
     ledger.submit(str(uuid4()), "test-device", "manual_song", ["dQw4w9WgXcQ"])
-    sample = tmp_path / "sample.m4a"
+    sample = tmp_path / "sample.mp3"
     subprocess.run(
         [
             ffmpeg,
@@ -33,7 +33,9 @@ def tagged_source(tmp_path: Path) -> tuple[IntakeLedger, Path]:
             "-i",
             "sine=duration=1",
             "-c:a",
-            "aac",
+            "libmp3lame",
+            "-q:a",
+            "2",
             "-metadata",
             "album_artist=Main Artist feat. Guest",
             "-metadata",
@@ -46,14 +48,14 @@ def tagged_source(tmp_path: Path) -> tuple[IntakeLedger, Path]:
     )
 
     def fake_transfer(_video_id: str, output: Path) -> Path:
-        result = Path(f"{output}.m4a")
+        result = Path(f"{output}.mp3")
         result.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(sample, result)
         return result
 
     staging = tmp_path / "staging"
     assert IntakeWorker(ledger, staging, fake_transfer).run_once()
-    audio_path = next(staging.rglob("*.m4a"))
+    audio_path = next(staging.rglob("*.mp3"))
     audio_path.with_suffix(".lrc").write_text("Test lyrics")
     audio_path.with_suffix(".jpg").write_bytes(b"test artwork sidecar")
     assert observe_manual_tags(ledger, "dQw4w9WgXcQ") == "tagged"
@@ -67,7 +69,7 @@ def test_preview_preserves_recording_version_sidecars_and_curated_tags(
     root = tmp_path / "Music"
     proposal = preview_filing(ledger, "dQw4w9WgXcQ", root)
     assert proposal.source == source
-    assert proposal.destination == root / "Main Artist" / "Song (Live Version).m4a"
+    assert proposal.destination == root / "Main Artist" / "Song (Live Version).mp3"
     assert proposal.sidecars == (
         (source.with_suffix(".lrc"), proposal.destination.with_suffix(".lrc")),
         (source.with_suffix(".jpg"), proposal.destination.with_suffix(".jpg")),
@@ -83,7 +85,7 @@ def test_preview_refuses_case_insensitive_existing_recording_collision(
     root = tmp_path / "Music"
     existing = root / "main artist"
     existing.mkdir(parents=True)
-    (existing / "song (live version).m4a").write_bytes(b"different recording")
+    (existing / "song (live version).mp3").write_bytes(b"different recording")
     proposal = preview_filing(ledger, "dQw4w9WgXcQ", root)
     assert proposal.conflicts
-    assert (existing / "song (live version).m4a").read_bytes() == b"different recording"
+    assert (existing / "song (live version).mp3").read_bytes() == b"different recording"

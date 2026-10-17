@@ -15,7 +15,7 @@ depends_on = None
 def _legacy_name(path: str | None) -> tuple[str | None, str | None]:
     if not path:
         return None, None
-    stem = PurePosixPath(path).name.removesuffix(".m4a")
+    stem = PurePosixPath(path).stem
     stem = re.sub(r" \[[A-Za-z0-9_-]{11}(?:-[0-9a-f]{8})?\]$", "", stem)
     if " - " not in stem:
         return stem or None, None

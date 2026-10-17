@@ -18,7 +18,7 @@ Transfer = Callable[[str, Path], Path]
 
 
 def _metadata_from_filename(filename: str) -> tuple[str | None, str | None]:
-    stem = Path(filename).name.removesuffix(".m4a")
+    stem = Path(filename).stem
     stem = re.sub(r" \[[A-Za-z0-9_-]{11}(?:-[0-9a-f]{8})?\]$", "", stem)
     if " - " not in stem:
         return (stem[:500] or None), None
@@ -27,8 +27,12 @@ def _metadata_from_filename(filename: str) -> tuple[str | None, str | None]:
 
 
 def sanitize_filename(filename: str, video_id: str) -> str:
-    """Turn yt-dlp's server-side metadata basename into one safe m4a filename."""
-    stem = filename[:-4] if filename.lower().endswith(".m4a") else filename
+    """Turn yt-dlp's metadata basename into a safe flat audio filename."""
+    lower = filename.lower()
+    suffix = next((ext for ext in (".mp3", ".m4a") if lower.endswith(ext)), ".mp3")
+    if not filename.lower().endswith(suffix):
+        suffix = ".mp3"
+    stem = filename[: -len(suffix)] if filename.lower().endswith(suffix) else filename
     stem = "".join(
         " " if char in "/\\" or unicodedata.category(char).startswith("C") else char
         for char in stem
@@ -36,13 +40,14 @@ def sanitize_filename(filename: str, video_id: str) -> str:
     stem = re.sub(r"\s+", " ", stem).strip(" .")[:150].rstrip(" .")
     while len(stem.encode("utf-8")) > 235:
         stem = stem[:-1].rstrip(" .")
-    return f"{stem or video_id}.m4a"
+    return f"{stem or video_id}{suffix}"
 
 
 def verify_audio(path: Path) -> VerifiedAudio:
-    """Decode and hash m4a; file existence alone is insufficient."""
-    if not path.is_file() or path.suffix.lower() != ".m4a" or path.stat().st_size == 0:
-        raise ValueError("Missing or empty m4a audio")
+    """Decode and hash supported intake audio; retain compatibility with old m4a."""
+    suffix = path.suffix.lower()
+    if not path.is_file() or suffix not in {".m4a", ".mp3"} or path.stat().st_size == 0:
+        raise ValueError("Missing or empty supported audio")
     try:
         probe = subprocess.run(
             [
@@ -65,13 +70,20 @@ def verify_audio(path: Path) -> VerifiedAudio:
             stream for stream in info["streams"] if stream.get("codec_type") == "audio"
         ]
         duration = float(info["format"].get("duration", 0))
-        if (
-            len(streams) != 1
-            or streams[0]["codec_name"] not in {"aac", "alac"}
-            or "mp4" not in info["format"]["format_name"]
-            or duration <= 0
-        ):
-            raise ValueError("Invalid m4a audio stream")
+        if suffix == ".m4a":
+            valid_container = (
+                streams
+                and streams[0]["codec_name"] in {"aac", "alac"}
+                and "mp4" in info["format"]["format_name"]
+            )
+        else:
+            valid_container = (
+                streams
+                and streams[0]["codec_name"] == "mp3"
+                and "mp3" in info["format"]["format_name"]
+            )
+        if len(streams) != 1 or not valid_container or duration <= 0:
+            raise ValueError("Invalid audio stream or container")
         decoded = subprocess.run(
             [
                 "ffmpeg",
@@ -141,7 +153,7 @@ class IntakeWorker:
             downloader = YTDLPDownloader(
                 DownloadConfig(
                     base_path=self.staging_root,
-                    codec=AudioCodec.M4A,
+                    codec=AudioCodec.MP3,
                     fetch_lyrics=False,
                 )
             )
@@ -175,7 +187,7 @@ class IntakeWorker:
                         artist=artist,
                     )
                     for temporary in self.staging_root.glob(
-                        f".yubal-inflight-{claim.attempt_id}-*.m4a"
+                        f".yubal-inflight-{claim.attempt_id}-*"
                     ):
                         if not temporary.is_symlink() and temporary.samefile(output):
                             temporary.unlink()
@@ -205,16 +217,17 @@ class IntakeWorker:
                 actual.parent.resolve() != self.staging_root
                 or actual.is_symlink()
                 or not actual.name.startswith(prefix)
-                or actual.suffix.lower() != ".m4a"
+                or actual.suffix.lower() not in {".mp3", ".m4a"}
             ):
                 raise ValueError("Downloader output escaped its flat staging template")
             verify_audio(actual)
             name = sanitize_filename(actual.name[len(prefix) :], claim.video_id)
-            stem = name[:-4]
+            suffix = Path(name).suffix
+            stem = name[: -len(suffix)]
             choices = [
                 name,
-                f"{stem} [{claim.video_id}].m4a",
-                f"{stem} [{claim.video_id}-{claim.attempt_id[:8]}].m4a",
+                f"{stem} [{claim.video_id}]{suffix}",
+                f"{stem} [{claim.video_id}-{claim.attempt_id[:8]}]{suffix}",
             ]
             for choice in choices:
                 flat = self.staging_root / choice

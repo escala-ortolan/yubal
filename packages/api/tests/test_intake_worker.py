@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import create_engine
+from yubal import AudioCodec, DownloadConfig
 from yubal_api.db.intake_ledger import IntakeLedger, metadata
 from yubal_api.services.intake_worker import IntakeWorker, verify_audio
 
@@ -40,6 +41,33 @@ def sample_audio(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def sample_mp3(tmp_path: Path) -> Path:
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        pytest.skip("ffmpeg is required for real audio fixture")
+    path = tmp_path / "sample.mp3"
+    subprocess.run(
+        [
+            ffmpeg,
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=duration=1",
+            "-c:a",
+            "libmp3lame",
+            "-q:a",
+            "2",
+            "-y",
+            str(path),
+        ],
+        check=True,
+    )
+    return path
+
+
+@pytest.fixture
 def worker_ledger(tmp_path: Path) -> IntakeLedger:
     engine = create_engine(f"sqlite:///{tmp_path / 'worker.db'}")
     metadata.create_all(engine)
@@ -56,6 +84,41 @@ def test_real_audio_probe_rejects_corruption(
     corrupt.write_bytes(b"not audio")
     with pytest.raises(ValueError, match="audio"):
         verify_audio(corrupt)
+
+
+def test_intake_worker_uses_mp3_download_config(
+    worker_ledger: IntakeLedger, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configs: list[DownloadConfig] = []
+    monkeypatch.setattr(
+        "yubal_api.services.intake_worker.YTDLPDownloader",
+        lambda config: configs.append(config),
+    )
+    IntakeWorker(worker_ledger, tmp_path / "staging")
+    assert len(configs) == 1
+    assert configs[0].codec == AudioCodec.MP3
+
+
+def test_worker_downloads_and_verifies_mp3(
+    worker_ledger: IntakeLedger, sample_mp3: Path, tmp_path: Path
+) -> None:
+    staging = tmp_path / "staging"
+
+    def transfer(_video_id: str, template: Path) -> Path:
+        output = template.with_name(
+            template.name.replace(
+                "%(artist,uploader|Unknown Artist)s", "MP3 Artist"
+            ).replace("%(title)s", "MP3 Title")
+            + ".mp3"
+        )
+        shutil.copyfile(sample_mp3, output)
+        return output
+
+    assert IntakeWorker(worker_ledger, staging, transfer).run_once()
+    final = staging / "MP3 Artist - MP3 Title.mp3"
+    assert final.is_file()
+    assert verify_audio(final).codec == "mp3"
+    assert worker_ledger.tagging_candidate("dQw4w9WgXcQ")[0] == final
 
 
 def test_worker_uses_ledger_and_restart_never_redownloads(
@@ -171,7 +234,7 @@ def test_restart_recovers_flat_published_audio_without_redownloading(
     staging.mkdir()
     claim = worker_ledger.claim("dQw4w9WgXcQ", staging_root=staging)
     assert claim is not None
-    assert worker_ledger.planned_output(claim) == staging / "dQw4w9WgXcQ.m4a"
+    assert worker_ledger.planned_output(claim) == staging / "dQw4w9WgXcQ.mp3"
     flat = staging / "The Artist - A Title.m4a"
     worker_ledger.plan_actual_output(claim, flat)
     shutil.copyfile(sample_audio, flat)
@@ -229,14 +292,14 @@ IntakeWorker(ledger, Path(sys.argv[2]), transfer).run_once()
 
 
 def test_crash_after_output_recovers_without_second_transfer(
-    worker_ledger: IntakeLedger, sample_audio: Path, tmp_path: Path
+    worker_ledger: IntakeLedger, sample_mp3: Path, tmp_path: Path
 ) -> None:
     staging = tmp_path / "staging"
     claim = worker_ledger.claim("dQw4w9WgXcQ", staging_root=staging)
     assert claim is not None
     output = worker_ledger.planned_output(claim)
     output.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(sample_audio, output)
+    shutil.copyfile(sample_mp3, output)
     transfer_calls: list[str] = []
 
     def unexpected_transfer(video_id: str, _output: Path) -> Path:
@@ -430,7 +493,7 @@ def test_different_playable_recording_is_not_accepted_as_tag_edit(
 
 
 def test_app_startup_recovers_under_exclusive_worker_lock(
-    tmp_path: Path, sample_audio: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, sample_mp3: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from fastapi.testclient import TestClient
     from yubal_api.api.app import create_app, run_migrations
@@ -456,7 +519,7 @@ def test_app_startup_recovers_under_exclusive_worker_lock(
         assert claim is not None
         output = ledger.planned_output(claim)
         output.parent.mkdir(parents=True)
-        shutil.copyfile(sample_audio, output)
+        shutil.copyfile(sample_mp3, output)
         engine.dispose()
         with TestClient(create_app()) as client:
             response = client.get(
@@ -472,7 +535,7 @@ def test_app_startup_recovers_under_exclusive_worker_lock(
 
 
 def test_process_death_after_audio_before_ledger_commit(
-    worker_ledger: IntakeLedger, sample_audio: Path, tmp_path: Path
+    worker_ledger: IntakeLedger, sample_mp3: Path, tmp_path: Path
 ) -> None:
     staging = tmp_path / "staging"
     # This is a separate interpreter ending abruptly: no context-manager cleanup.
@@ -496,7 +559,7 @@ os._exit(17)
             script,
             str(tmp_path / "worker.db"),
             str(staging),
-            str(sample_audio),
+            str(sample_mp3),
         ],
         check=False,
     )
