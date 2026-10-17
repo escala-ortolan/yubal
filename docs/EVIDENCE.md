@@ -552,3 +552,33 @@ plus forget-song and force-redownload options. Contract is now
   downloads. VM1 now runs the overlay image with staging still at `/music/_intake`;
   DB integrity is `ok`, and public UI/health both return 200. No music files or
   ledger rows were edited by this change.
+
+## Use YouTube Music primary artist for new filenames (2026-10-17)
+
+- Root cause: for `hYDS7OWV23A`, yt-dlp returned `artist` and `creator` as
+  `Meghan Patrick, Trannie Anderson, Dallas Wilson, Michael Whitworth`, while
+  its structured ordered `artists` field began with `Meghan Patrick` and its
+  `uploader`/`channel` were also `Meghan Patrick`. The worker had saved the
+  combined artist verbatim and used it for the output basename.
+- The downloader callback now prefers the first non-empty entry in yt-dlp's
+  structured `artists` list. The worker uses this resolved artist and track title
+  for the final staging filename as well as ledger display metadata; it falls
+  back to the prior server filename when no structured metadata is available.
+  This affects future downloads only. The already-downloaded `hYDS7OWV23A` file
+  and ledger row were not renamed or rewritten.
+- Test-first coverage includes the multi-credit metadata fixture, worker final
+  filename/ledger fields, and the downloader postprocessor callback. Full API and
+  downloader regression: **796 passed**, one existing Starlette/httpx warning;
+  Ruff and `ty` passed. A network-disabled container smoke reproduced the raw
+  metadata fields and asserted the callback returns `Both Can Be True` / `Meghan
+  Patrick`. No audio was downloaded for this verification.
+- Production image `yubal:intake-primary-artist-20261017` was built on the current
+  live MP3 image to retain its other deployed code; ID
+  `sha256:1837c2b3bd4617bf00f04770ded538c37575c0a50c42f5d3815f9d2f3d20d367`.
+  Before recreating only Yubal, saved compose to
+  `/opt/youtube/backups/docker-compose.yml.20261017-111537.pre-primary-artist`
+  and SQLite to
+  `/opt/youtube/intake-state/yubal/yubal.db.20261017-111537.pre-primary-artist.backup`
+  (774144 bytes, integrity `ok`, revision `d42b6c1a0004`). There were zero
+  pending/in-flight downloads. Yubal now runs this image; DB integrity remains
+  `ok`, staging remains `/music/_intake`, and public UI/health return 200.

@@ -2,7 +2,7 @@
 # The host paths are local VM1 disk. Do not place /state on NFS.
 services:
   yubal:
-    image: yubal:intake-mp3-livebase-20261017
+    image: yubal:intake-primary-artist-20261017
     container_name: yubal
     environment:
       YUBAL_HOST: 0.0.0.0
