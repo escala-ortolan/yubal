@@ -535,3 +535,20 @@ plus forget-song and force-redownload options. Contract is now
   Full API/downloader test suite: **795 passed** (one existing
   Starlette/httpx deprecation warning); targeted Ruff and `ty` checks passed.
   No production download is used as build/test evidence.
+- Production was running `yubal:intake-credit-separators-v2-20261016`
+  (`sha256:de3652d58b027c983a1bdfd58a9dd4d3d38d3fd47b30efdb9161cc7dbd20a22d`),
+  newer than the checked-in image. Built
+  `yubal:intake-mp3-livebase-20261017` **on top of that live image** to preserve
+  its deployed features, overlaying only the worker, ledger, filing-preview, and
+  metadata-migration modules. Resulting image ID:
+  `sha256:66fea727e5341c598d53f45d24974eeea772fc1d5f6d08a5bd9e4598e71d9d28`.
+  A network-disabled container smoke generated and independently verified both
+  MP3 and legacy M4A fixtures.
+- Before replacing only the Yubal container, saved compose to
+  `/opt/youtube/backups/docker-compose.yml.20261017-105926.pre-mp3` and an
+  integrity-checked online DB backup to
+  `/opt/youtube/intake-state/yubal/yubal.db.20261017-105926.pre-mp3.backup`
+  (774144 bytes, revision `d42b6c1a0004`). There were zero pending or in-flight
+  downloads. VM1 now runs the overlay image with staging still at `/music/_intake`;
+  DB integrity is `ok`, and public UI/health both return 200. No music files or
+  ledger rows were edited by this change.
