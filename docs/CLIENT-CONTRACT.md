@@ -5,6 +5,18 @@ Contract version: `2026-10-06.ui3`. Schema of record:
 asserted equal to it in the test suite. Bump this version whenever a route,
 status enum or response field changes.
 
+The 2026-10-16 candidate external-tagger handoff adds an owner-local JSON command
+only; it adds no HTTP route/response/status or migration. This client contract and
+generated schema remain unchanged. Existing clients need no update for it. See
+`TAGGER-HANDOFF.md` for the candidate's reviewed exact-path quality policy.
+
+The deployed manual-arrival extension adds only owner-local CLI behavior and an
+additive local provenance table (`e51a9b2c0005`). Public YouTube submission IDs,
+HTTP routes and generated OpenAPI remain unchanged; `manual-<uuid32>` identities
+are not valid public video IDs. Owner work responses use `source_id/source_kind`,
+with `video_id` retained only for YouTube sources. See the handoff documentation;
+clients do not submit manual files through `/v1/intakes`.
+
 Authoritative owner: `/srv/dev/repos/yubal`. The generated FastAPI `/openapi.json`
 is the schema source. These are custom `/v1` routes, not upstream Yubal routes.
 

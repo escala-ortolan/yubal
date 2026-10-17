@@ -8,6 +8,7 @@ __pycache__/
 .coverage
 /coverage/
 /.playwright-cli/
+/.playwright-mcp/
 
 /web/dist/
 /web/node_modules/

@@ -1,5 +1,175 @@
 # Measured progress (2026-10-05)
 
+## GitHub synchronization of deployed source (2026-10-17)
+
+- Owner requested publication of the outstanding deployed changes. Compared all
+  104 Python source files in the live container's `yubal`/`yubal_api` packages
+  against this checkout: no mismatches. The two changed owner scripts also match
+  their deployed SHA-256 hashes. The speculative, undeployed artist-hook changes
+  from this session were preserved outside the repository at
+  `/tmp/opencode/yubal-undeployed-artist-hardening.patch` and removed from the
+  checkout; the real production download already verified the deployed logic.
+- Full API/downloader regression on the synchronized source: **808 passed**, one
+  existing Starlette/httpx warning. Ruff lint and targeted format checks pass.
+  Targeted `ty` reports only a deprecated `@contextmanager` return annotation in
+  `filing.py` (a warning, with nonzero exit); no type errors were reported.
+- Compose now records the observed local image
+  `yubal:manual-intake-overlay-20261017`. This publication does not build/push an
+  image, set up CI, restart a container, or change production data. The deployment
+  still uses a locally built VM1 image, not a GitHub Container Registry image.
+- Live app uid/gid is 1000:2000. Its configured `/music/_intake` is readable,
+  writable and searchable under that identity. The earlier host-root permission
+  denial is not evidence of an app permissions fault; actual download/full
+  decode verification is recorded below. No permission changes were made.
+
+## Mixed manual/downloaded arrivals (2026-10-17)
+
+Production cutover was subsequently explicitly authorized and completed:
+`yubal:manual-intake-overlay-20261017`, image ID
+`sha256:9f5e256bdab50bd65e9914a06f4e9e7e0670e0a5c8bf8f67a7d51573d8564bbd`,
+matching host runner and additive migration `e51a9b2c0005`. Verified owner DB
+backup: `/state/yubal/pre-manual-deploy-20261017T184540Z.db`; config/runner backups:
+`/opt/songkong-pipeline/manual-deploy-20261017T184540Z`. Integrity and foreign-key
+checks passed, capabilities advertise manual support, and service health passed.
+Only Yubal was recreated. Under separate explicit authorization the exact ten
+reported failing MP3s were revalidated and deleted, with zero sidecar deletions
+and all 114 untargeted files unchanged. Local deletion journal:
+`/state/yubal/authorized-intake-deletions-20261017T184540Z.jsonl`. The full scheduled
+pipeline was started on the remaining batch and began registering 113 manual
+sources alongside the existing downloaded source; processing is not yet claimed
+complete. The earlier pre-cutover test evidence below remains scoped to scratch.
+
+- Test-first registration initially failed collection because the owner service
+  did not exist. Final full API/downloader regression: **808 passed**, one existing
+  Starlette/httpx warning. Targeted Ruff/type checks pass. The intake operations
+  repo has **72 passing tests**, including owner registration before tagging and
+  rejecting manual IDs disguised as video IDs.
+- Native generated MP3 tests cover idempotent local registration, mixed-source
+  provenance, no manual download attempts/transfers, no content/path identity
+  guessing, same-name later arrivals, invalid/young/symlink/root escapes,
+  changed-recording and tagged-state refusal, concurrent registration, real process
+  death after registration and after archival, and real migration downgrade guards.
+- Built `yubal:manual-intake-overlay-20261017` from pinned live base
+  `sha256:1837c2b3bd4617bf00f04770ded538c37575c0a50c42f5d3815f9d2f3d20d367`.
+  `Dockerfile.manual-intake` changes only the owner ledger/services/scripts and
+  migration, preserving downloader/UI bytes. A full-source candidate was also
+  built, but is not the cutover target because it includes unrelated checkout
+  downloader changes. No production image or database was changed during building/testing.
+- Network-disabled scratch image testing upgraded an old-schema database with a
+  generated/fake-transfer YouTube source, registered a manual MP3, simulated an
+  external Mutagen tag edit, then used real owner observe/preview/file commands for
+  both. Original provenance and PCM, sidecar publication, idempotent filing, zero
+  manual attempts, one YouTube attempt and no further transfers were verified.
+  The new image read a restored post-registration DB; the previous image read a
+  restored pre-migration DB with matching pre-migration media. No SongKong job or
+  real network download was part of this test.
+- Evidence remains local under
+  `/opt/songkong-pipeline-candidate/yubal-manual-intake-20261017/`. A separate
+  read-only current-arrival report found MP3 header decoding errors; those files
+  were not changed, deleted, repaired or silently accepted during preflight.
+  Manual registration does not bypass audio checks. The subsequent approved
+  migration/recreation and exact ten-file deletion are recorded above. No commits/pushes.
+
+## Real production app download: Both Can Be True (2026-10-17)
+
+- User authorized removal of this song's stale records/files and a real download.
+  Reproduced in the public React app: a new submission immediately reused the
+  existing `downloaded` source row, although its recorded audio was absent. This
+  was stale source deduplication, not a new successful transfer. Deleting a history
+  entry does not forget global source identity; missing-file reconciliation is
+  not continuous. The stale-success behavior remains a separate backend defect.
+- Backed up the live DB to
+  `/state/yubal/yubal.db.1792236727311058460.realtest-hYDS7OWV23A.backup`, then
+  cleared only `hYDS7OWV23A` memberships, attempt, downstream and source rows.
+  Confirmed recorded audio was absent, no source aliases, no active transfer or
+  filing plan; SQLite integrity remained `ok`. No audio was deleted.
+- Submitted `https://music.youtube.com/watch?v=hYDS7OWV23A` through the app.
+  Observed `downloading`; an initial HTTP 403 was retried by the existing worker.
+  The app subsequently displayed `Both Can Be True` / `Meghan Patrick`,
+  `downloaded` / `waiting_for_tagger`.
+- Independently verified the actual container file
+  `/music/_intake/Meghan Patrick - Both Can Be True.mp3`: 7,214,828 bytes,
+  MP3, 210.240 seconds, complete FFmpeg decode passed, SHA-256 matched the
+  ledger (`5793c3d0876d5985d520289e6cc12e671ddcdd2c372b26ebbd1d97fbd7cb441d`).
+  One durable attempt. This ran on the already-deployed
+  `yubal:intake-primary-artist-20261017`; no new image or restart was required.
+  Earlier claims that another metadata patch was required were not established
+  by a real download; this test verifies the deployed patch for this source.
+- Assigned the fresh test intake `1d298747-b131-4b74-90c5-3da08854a0e6` to the
+  user's existing owner device, disconnected/revoked the temporary test device,
+  removed its temporary credential transport, and retained the verified MP3.
+  Host-root stat of the Docker NFS-volume pathname was permission-denied;
+  successful media verification above was inside the real Yubal container.
+
+## Deployed combined-credit parser (2026-10-16)
+
+- Test-first separator cases initially failed on the missing parser function.
+  Final regression: **793 passed**, one existing Starlette/httpx warning. Targeted
+  Ruff and type checks passed. Tests cover semicolons/spaced slashes, native MP4
+  credit lists, a mocked file loader with real ID3 frames, bare AC/DC preservation,
+  guest-vs-primary ordering, unchanged title/metadata bytes, and album-group
+  evidence that rejoins separately credited members.
+- Built/deployed `yubal:intake-credit-separators-v2-20261016`, ID
+  `sha256:de3652d58b027c983a1bdfd58a9dd4d3d38d3fd47b30efdb9161cc7dbd20a22d`.
+  Network-disabled generated-audio owner-CLI smoke passed, including archive,
+  sidecar, PCM and ledger verification. A restored scratch DB/audio was readable
+  with the prior image; final image separator/group read-back passed. No schema,
+  client API or migration changes were added.
+- User-approved Yubal-only recreation followed an owner-verified local DB backup
+  `/state/yubal/pre-credit-separators-20261016T2225.db` and compose backup. No
+  unfinished downloads existed before recreation. Live owner parser checks passed.
+  SongKong scheduling remains disabled; other services were not restarted.
+- Separate approved existing-library path correction moved 103 audio files and
+  50 same-stem sidecars, removed 82 emptied source folders, and held four uncertain
+  duo-credit audio paths. Independent full-file hashes verified all 153 moved
+  files and all held files unchanged, proving tags/audio were not rewritten.
+  No collisions, music deletions, ledger edits or downstream scans were performed.
+  Evidence stays local on VM1 under
+  `/opt/songkong-pipeline/artist-credit-correction-20261016/`, not in repo exports.
+
+## Candidate external-tagger owner handoff (2026-10-16)
+
+- New opt-in JSON owner command and exact-path quality filing were implemented in
+  the backend; original owner commands remain no-overwrite. No network API schema
+  or DB migration was added. Existing README and untracked handoff-document user
+  edits were preserved; the handoff doc gained an explicit candidate extension.
+- Test-first policy collection initially failed because the new service did not
+  exist. Final isolated API/downloader regression: **784 passed**, one existing
+  Starlette/httpx deprecation warning. Targeted Ruff and `ty` checks pass.
+  New tests include native AAC, quality tie holds, unchanged sidecars on conflicts,
+  observed source-ID exports, registered duo entities, stale review tokens,
+  verified replacement archives, real process death after archival, and idempotent
+  resume without another download attempt. Legacy filing/crash regressions pass.
+- SongKong operations repo candidate: **63 unittest tests pass**, including no
+  temporary batch moves, unmatched-tag handoff, untracked-ID refusal, owner PCM
+  refusal/coverage filtering, disabled artwork settings, and rejection when an
+  apparent same path refers to different media bytes.
+- Built `yubal:intake-handoff-candidate-v2-20261016` on VM1 using the pinned
+  Dockerfile/lockfile and explicit `uncommitted-handoff-v2` UI provenance. Image ID:
+  `sha256:59f2e7041418c8f065b5a5a76023b9e2d5eac20143959e84b0a01554256c3782`.
+- With **network disabled** and only scratch local state/media mounted, the image
+  ran the real owner `work`, `verify`, `observe`, `preview`, `file`, and `reconcile`
+  commands against its own migrated SQLite DB. A generated AAC fixture used a
+  fake transfer, then native tag normalization through the external helper:
+  recorded staging filename unchanged, artist/albumartist canonicalized to
+  `João Carreiro & Capataz`, decoded PCM unchanged, and pre/post media byte hashes
+  equal between the tagger mount and owner commands. No SongKong call or actual
+  YouTube download occurred in this test.
+- A lower-bitrate fixture at the exact reviewed final path was preserved to the
+  local archive before the arrival filed. Archive bytes/PCM, arrival PCM, `.lrc`
+  filing and ledger final path were independently verified. Repeating the owner
+  filing and re-submitting the source retained **one attempt/no new transfer**.
+  An owner SQLite backup was restored to a separate scratch path with integrity
+  `ok`; the previous production image read that completed backup/final audio.
+  This is not a live DB restore or a claim about rollback during an incomplete
+  archive-to-publication window.
+- Evidence: `/opt/songkong-pipeline-candidate/intake-inplace-v2-20261016/`, including
+  `test-state-v2/integration-result.json`, scratch backups/receipts and the smoke
+  script. The live Yubal container identity remained unchanged. No live ledger
+  command, library mutation, service restart, credentials export, commit/push or
+  production cutover was performed. Deployment still needs approval and a real
+  SongKong → owner filing → downstream scan pilot.
+
 - Pinned upstream `git ls-remote` returned
   `78d63846712178ded0b5f3c2552a80e952451c3c` for `refs/heads/master`.
 - Baseline using isolated config/staging: `pytest packages/api/tests

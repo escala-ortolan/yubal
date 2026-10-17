@@ -1,0 +1,11 @@
+# Narrow production overlay: preserve the current downloader/UI and change only
+# the owner manual-intake protocol. Verify the base ID before/after building.
+ARG BASE_IMAGE=yubal:manual-base-20261017-1837c2b3bd46
+FROM ${BASE_IMAGE}
+LABEL io.homelab.manual-base-id="sha256:1837c2b3bd4617bf00f04770ded538c37575c0a50c42f5d3815f9d2f3d20d367"
+COPY --chown=1000:2000 packages/api/src/yubal_api/db/intake_ledger.py /app/.venv/lib/python3.12/site-packages/yubal_api/db/intake_ledger.py
+COPY --chown=1000:2000 packages/api/src/yubal_api/services/manual_intake.py packages/api/src/yubal_api/services/tagger_handoff.py /app/.venv/lib/python3.12/site-packages/yubal_api/services/
+COPY --chown=1000:2000 packages/api/src/yubal_api/migrations/versions/e51a9b2c0005_manual_sources.py /app/.venv/lib/python3.12/site-packages/yubal_api/migrations/versions/
+COPY --chown=1000:2000 scripts/tagger_handoff.py scripts/reset_intake_history.py /app/scripts/
+RUN python /app/scripts/tagger_handoff.py capabilities
+RUN python -c 'import os,sqlite3,tempfile; tmp=tempfile.TemporaryDirectory(); os.environ["YUBAL_CONFIG"]=tmp.name; from yubal_api.api.app import run_migrations; from yubal_api.settings import get_settings; run_migrations(); db=sqlite3.connect(get_settings().db_path); assert db.execute("SELECT version_num FROM alembic_version").fetchone()==("e51a9b2c0005",); assert db.execute("SELECT count(*) FROM manual_sources").fetchone()==(0,); db.close(); tmp.cleanup()'

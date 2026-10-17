@@ -15,6 +15,7 @@ import sqlalchemy as sa
 from sqlalchemy import Connection, Engine, MetaData, text
 
 VIDEO_ID = re.compile(r"[A-Za-z0-9_-]{11}\Z")
+SOURCE_ID = re.compile(r"(?:[A-Za-z0-9_-]{11}|manual-[0-9a-f]{32})\Z")
 metadata = MetaData()
 
 # Verified audio, not a URL or filename, is what marks a source downloaded.
@@ -29,7 +30,8 @@ DownstreamState = Literal[
 source_tracks = sa.Table(
     "source_tracks",
     metadata,
-    sa.Column("video_id", sa.String(11), primary_key=True),
+    # Historical column name; local source IDs are not YouTube video IDs.
+    sa.Column("video_id", sa.String(64), primary_key=True),
     sa.Column("state", sa.String(32), nullable=False, server_default="pending"),
     sa.Column("lease_token", sa.String(36)),
     sa.Column("audio_path", sa.String(4096)),
@@ -120,7 +122,7 @@ downstream_stages = sa.Table(
     metadata,
     sa.Column(
         "video_id",
-        sa.String(11),
+        sa.String(64),
         sa.ForeignKey("source_tracks.video_id"),
         primary_key=True,
     ),
@@ -130,6 +132,20 @@ downstream_stages = sa.Table(
     sa.Column("planned_sidecars", sa.Text()),
     sa.Column("final_path", sa.String(4096)),
     sa.Column("error", sa.Text()),
+)
+
+manual_sources = sa.Table(
+    "manual_sources",
+    metadata,
+    sa.Column(
+        "source_id",
+        sa.String(64),
+        sa.ForeignKey("source_tracks.video_id"),
+        primary_key=True,
+    ),
+    sa.Column("original_path", sa.String(4096), nullable=False),
+    sa.Column("original_sha256", sa.String(64), nullable=False),
+    sa.Column("created_at", sa.Float(), nullable=False),
 )
 
 
@@ -494,8 +510,18 @@ class IntakeLedger:
             )
 
     def resolve(self, video_id: str) -> str:
-        self._video_id(video_id)
+        if not SOURCE_ID.fullmatch(video_id):
+            raise ValueError("Invalid source identity")
         with self.engine.connect() as connection:
+            if (
+                video_id.startswith("manual-")
+                and not connection.execute(
+                    sa.select(manual_sources.c.source_id).where(
+                        manual_sources.c.source_id == video_id
+                    )
+                ).first()
+            ):
+                raise ValueError("Unregistered manual source identity")
             return self._resolve(connection, video_id)
 
     @staticmethod
@@ -791,6 +817,93 @@ class IntakeLedger:
             if not row or not row[0] or not row[1]:
                 raise ValueError("No verified audio waiting for tags")
             return Path(row[0]), str(row[1])
+
+    def tagger_work(self, staging: Path) -> list[dict[str, str]]:
+        """Owner export of verified source identities; never infer IDs from names."""
+        root = staging.resolve()
+        with self.engine.connect() as connection:
+            rows = connection.execute(
+                text(
+                    "SELECT s.video_id, s.audio_path, s.title, s.artist "
+                    "FROM source_tracks s JOIN downstream_stages d "
+                    "ON s.video_id = d.video_id WHERE s.state = 'downloaded' "
+                    "AND d.status = 'waiting_for_tagger' ORDER BY s.video_id"
+                )
+            ).all()
+        result = []
+        for r in rows:
+            if not r[1] or not Path(r[1]).resolve().is_relative_to(root):
+                continue
+            sid = str(r[0])
+            item = {
+                "source_id": sid,
+                "source_kind": "manual" if sid.startswith("manual-") else "youtube",
+                "path": str(r[1]),
+                "title": str(r[2] or ""),
+                "artist": str(r[3] or ""),
+            }
+            if not sid.startswith("manual-"):
+                item["video_id"] = (
+                    sid  # Compatible with the existing YouTube-only bridge.
+                )
+            result.append(item)
+        return result
+
+    def register_manual_audio(self, audio: VerifiedAudio) -> str:
+        """Owner-only local arrival adoption; no download attempt or video alias."""
+        if not audio.pcm_sha256 or not re.fullmatch(r"[0-9a-f]{64}", audio.sha256):
+            raise ValueError("Verified original audio identity required")
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                text(
+                    "SELECT s.video_id,s.state,s.pcm_sha256,d.status "
+                    "FROM source_tracks s "
+                    "LEFT JOIN downstream_stages d ON d.video_id=s.video_id "
+                    "WHERE s.audio_path=:path"
+                ),
+                {"path": audio.path},
+            ).all()
+            if rows:
+                if len(rows) != 1:
+                    raise ValueError("Ambiguous source paths require owner review")
+                sid, state, pcm, downstream = rows[0]
+                if state != "downloaded" or downstream != "waiting_for_tagger":
+                    raise ValueError(
+                        "Source state is not waiting; inspect current run/review"
+                    )
+                if pcm != audio.pcm_sha256:
+                    raise ValueError(
+                        "Registered recording changed; never silently adopt it"
+                    )
+                return str(sid)
+            sid = "manual-" + uuid4().hex
+            # 'downloaded' is the existing internal verified-audio state. Provenance
+            # is explicit in manual_sources; no video/download attempt is created.
+            connection.execute(
+                source_tracks.insert().values(
+                    video_id=sid,
+                    state="downloaded",
+                    audio_path=audio.path,
+                    audio_sha256=audio.sha256,
+                    pcm_sha256=audio.pcm_sha256,
+                )
+            )
+            connection.execute(
+                manual_sources.insert().values(
+                    source_id=sid,
+                    original_path=audio.path,
+                    original_sha256=audio.sha256,
+                    created_at=self.clock(),
+                )
+            )
+            connection.execute(
+                downstream_stages.insert().values(
+                    video_id=sid,
+                    status="waiting_for_tagger",
+                )
+            )
+            return sid
 
     def retry_tagging(self, video_id: str) -> bool:
         """Re-open tagging without touching the verified download."""

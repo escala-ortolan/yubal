@@ -18,6 +18,7 @@ feature coverage and the backend review.
 - **Start it and use it:** `docs/RUNNING.md`
 - **API endpoints and credentials:** `docs/API.md`
 - **API for client developers:** `docs/CLIENT-CONTRACT.md`, schema of record `docs/fixtures/openapi-v1.json`
+- **External tagger and ledger handoff:** `docs/TAGGER-HANDOFF.md`
 - **What was actually tested:** `docs/EVIDENCE.md`
 - **Dev/test environment:** `docs/DEVELOPMENT.md`
 

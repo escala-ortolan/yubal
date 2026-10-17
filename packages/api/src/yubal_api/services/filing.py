@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from yubal_api.db.intake_ledger import FilingRefused, IntakeLedger, VerifiedAudio
-from yubal_api.services.filing_preview import preview_filing
+from yubal_api.services.filing_preview import FilingPreview, preview_filing
 from yubal_api.services.intake_worker import IntakeWorker, verify_audio
 
 
@@ -140,16 +140,20 @@ def _file_verified_audio_locked(
     music_root: Path,
     *,
     after_audio_move: Callable[[Path], None] | None = None,
+    reviewed_preview: FilingPreview | None = None,
 ) -> FiledAudio:
     if ledger.filing_plan(video_id) is not None:
         # A previous attempt may have died between the plan and the ledger write.
-        _reconcile_filing_locked(ledger)
+        _reconcile_filing_locked(ledger, video_id=ledger.resolve(video_id))
     if ledger.downstream_state(video_id) == "filed":
         raise AlreadyFiled(f"Source is already filed at {ledger.final_path(video_id)}")
-    preview = preview_filing(ledger, video_id, music_root)
+    preview = reviewed_preview or preview_filing(ledger, video_id, music_root)
     if preview.conflicts:
         raise FileConflict("; ".join(preview.conflicts))
     source_audio = verify_audio(preview.source)
+    expected_source, expected_pcm = ledger.tagging_candidate(video_id)
+    if preview.source != expected_source or source_audio.pcm_sha256 != expected_pcm:
+        raise FileConflict("Reviewed source no longer matches the verified download")
     if source_audio.pcm_sha256 is None:
         raise FileConflict("Verified audio lost its decoded-audio fingerprint")
     ledger.plan_filing(video_id, preview.destination, list(preview.sidecars))
@@ -194,9 +198,13 @@ def recover_filing_and_downloads(worker: IntakeWorker) -> int:
         return changes
 
 
-def _reconcile_filing_locked(ledger: IntakeLedger) -> int:
+def _reconcile_filing_locked(
+    ledger: IntakeLedger, *, video_id: str | None = None
+) -> int:
     changes = 0
     for candidate in ledger.pending_filings():
+        if video_id is not None and candidate.video_id != video_id:
+            continue
         if candidate.status == "filed":
             # Filed audio must still decode to the verified recording, not merely
             # occupy its recorded path.

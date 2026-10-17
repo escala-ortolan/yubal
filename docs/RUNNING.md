@@ -1,5 +1,19 @@
 # How to run and test this
 
+## Current production deployment (2026-10-17)
+
+Working source is on Coder at `/srv/dev/repos/yubal`; the custom GitHub repository
+is `https://github.com/escala-ortolan/yubal` (`main`). Production runs on VM1 from
+`/opt/youtube/docker-compose.yml`, using the locally built Docker image
+`yubal:manual-intake-overlay-20261017`. It does not automatically pull code or
+images from GitHub. `compose.intake.yaml` records that deployment configuration.
+
+`Dockerfile.intake` is the full-source build recipe. `Dockerfile.manual-intake`
+records the narrow overlay used for the manual-arrival deployment and needs its
+existing local base image; it is not a standalone registry release. Publishing
+source does not update the running container. No automatic GitHub build/deploy
+pipeline or published GitHub Release is currently configured.
+
 Everything below happens on **this machine only**, in `/tmp/opencode`. It does
 not touch your real music library, your Google account, or any running service.
 
